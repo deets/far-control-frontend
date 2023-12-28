@@ -1,0 +1,9 @@
+[build]
+target-dir = "/tmp/control-frontend"
+
+[target.aarch64-apple-darwin]
+rustflags = [
+  "-C", "link-arg=-L/opt/homebrew/Cellar/sdl2/2.28.5/lib",
+]
+
+
