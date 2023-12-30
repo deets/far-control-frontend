@@ -1,5 +1,5 @@
 use glow::HasContext;
-use imgui::Context;
+use imgui::{Condition, Context, WindowFlags};
 use imgui_glow_renderer::AutoRenderer;
 use imgui_sdl2_support::SdlPlatform;
 use sdl2::{
@@ -27,7 +27,7 @@ fn main() {
 
     /* create a new window, be sure to call opengl method on the builder when using glow! */
     let window = video_subsystem
-        .window("Hello imgui-rs!", 1280, 720)
+        .window("FAR Launch Control", 800, 480)
         .allow_highdpi()
         .opengl()
         .position_centered()
@@ -78,8 +78,14 @@ fn main() {
         platform.prepare_frame(&mut imgui, &window, &event_pump);
 
         let ui = imgui.new_frame();
-        /* create imgui UI here */
-        ui.show_demo_window(&mut true);
+        let _w = ui
+            .window("main")
+            .flags(WindowFlags::NO_DECORATION | WindowFlags::NO_MOVE | WindowFlags::NO_BACKGROUND)
+            .content_size([800.0, 480.0])
+            .position([0.0, 0.0], Condition::Always)
+            .build(|| {
+                ui.text("Broken! Only first button responds to clicks");
+            });
 
         /* render */
         let draw_data = imgui.render();
