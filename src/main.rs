@@ -1,11 +1,13 @@
 use glow::HasContext;
-use imgui::{Condition, Context, WindowFlags};
+use imgui::{Condition, Context, FontSource, WindowFlags};
 use imgui_glow_renderer::AutoRenderer;
 use imgui_sdl2_support::SdlPlatform;
 use sdl2::{
     event::Event,
     video::{GLProfile, Window},
 };
+
+const FONT_SIZE: f32 = 16.0;
 
 // Create a new glow context.
 fn glow_context(window: &Window) -> glow::Context {
@@ -57,6 +59,12 @@ fn main() {
         .fonts()
         .add_font(&[imgui::FontSource::DefaultFontData { config: None }]);
 
+    let amiga4ever_pro2 = imgui.fonts().add_font(&[FontSource::TtfData {
+        data: include_bytes!("../resources/amiga4ever-pro2.ttf"),
+        size_pixels: FONT_SIZE,
+        config: None,
+    }]);
+
     /* create platform and renderer */
     let mut platform = SdlPlatform::init(&mut imgui);
     let mut renderer = AutoRenderer::initialize(gl, &mut imgui).unwrap();
@@ -84,6 +92,7 @@ fn main() {
             .content_size([800.0, 480.0])
             .position([0.0, 0.0], Condition::Always)
             .build(|| {
+                let _font = ui.push_font(amiga4ever_pro2);
                 ui.text("Broken! Only first button responds to clicks");
             });
 
