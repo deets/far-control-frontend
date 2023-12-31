@@ -1,3 +1,6 @@
+mod render;
+mod state;
+
 use glow::HasContext;
 use imgui::{Condition, Context, FontSource, WindowFlags};
 use imgui_glow_renderer::AutoRenderer;
@@ -6,6 +9,9 @@ use sdl2::{
     event::Event,
     video::{GLProfile, Window},
 };
+
+use render::render;
+use state::State;
 
 const FONT_SIZE: f32 = 16.0;
 
@@ -17,6 +23,7 @@ fn glow_context(window: &Window) -> glow::Context {
 }
 
 fn main() {
+    let state = State::default();
     /* initialize SDL and its video subsystem */
     let sdl = sdl2::init().unwrap();
     let video_subsystem = sdl.video().unwrap();
@@ -93,7 +100,7 @@ fn main() {
             .position([0.0, 0.0], Condition::Always)
             .build(|| {
                 let _font = ui.push_font(amiga4ever_pro2);
-                ui.text("Broken! Only first button responds to clicks");
+                render(&ui, &state);
             });
 
         /* render */
