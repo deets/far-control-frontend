@@ -1,114 +1,128 @@
+//! A simple example of how to create an sdl window with glow
 mod render;
 mod state;
+mod timestep;
 
-use glow::HasContext;
-use imgui::{Condition, Context, FontSource, WindowFlags};
-use imgui_glow_renderer::AutoRenderer;
-use imgui_sdl2_support::SdlPlatform;
-use sdl2::{
-    event::Event,
-    video::{GLProfile, Window},
-};
+use std::{sync::Arc, time::Instant};
 
-use render::render;
+use render::{render, setup_custom_fonts};
+
+use egui_glow::glow::HasContext;
+use egui_sdl2_platform::sdl2;
+use sdl2::event::{Event, WindowEvent};
 use state::State;
+use timestep::TimeStep;
 
-const FONT_SIZE: f32 = 16.0;
+const SCREEN_WIDTH: u32 = 800;
+const SCREEN_HEIGHT: u32 = 480;
 
-// Create a new glow context.
-fn glow_context(window: &Window) -> glow::Context {
-    unsafe {
-        glow::Context::from_loader_function(|s| window.subsystem().gl_get_proc_address(s) as _)
-    }
-}
-
-fn main() {
-    let state = State::default();
-    /* initialize SDL and its video subsystem */
-    let sdl = sdl2::init().unwrap();
-    let video_subsystem = sdl.video().unwrap();
-
-    /* hint SDL to initialize an OpenGL 3.3 core profile context */
-    let gl_attr = video_subsystem.gl_attr();
-
-    gl_attr.set_context_version(3, 3);
-    gl_attr.set_context_profile(GLProfile::Core);
-
-    /* create a new window, be sure to call opengl method on the builder when using glow! */
-    let window = video_subsystem
-        .window("FAR Launch Control", 800, 480)
-        .allow_highdpi()
+/// Runs the demo app
+async fn run() -> anyhow::Result<()> {
+    // Initialize sdl
+    let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;
+    // Create the video subsystem
+    let mut video = sdl
+        .video()
+        .map_err(|e| anyhow::anyhow!("Failed to initialize sdl video subsystem: {}", e))?;
+    // Create the sdl window
+    let window = video
+        .window("Window", SCREEN_WIDTH, SCREEN_HEIGHT)
         .opengl()
         .position_centered()
-        .resizable()
-        .build()
-        .unwrap();
+        .build()?;
+    // Get the sdl event pump
+    let mut event_pump = sdl
+        .event_pump()
+        .map_err(|e| anyhow::anyhow!("Failed to get sdl event pump: {}", e))?;
 
-    /* create a new OpenGL context and make it current */
-    let gl_context = window.gl_create_context().unwrap();
-    window.gl_make_current(&gl_context).unwrap();
+    let _gl_context = window
+        .gl_create_context()
+        .expect("Failed to create GL context");
 
-    /* enable vsync to cap framerate */
-    window.subsystem().gl_set_swap_interval(1).unwrap();
+    let gl = unsafe {
+        egui_glow::painter::Context::from_loader_function(|name| {
+            video.gl_get_proc_address(name) as *const _
+        })
+    };
+    let mut painter = egui_glow::Painter::new(Arc::new(gl), "", None).unwrap();
 
-    /* create new glow and imgui contexts */
-    let gl = glow_context(&window);
+    // Create the egui + sdl2 platform
+    let mut platform = egui_sdl2_platform::Platform::new(window.size())?;
 
-    /* create context */
-    let mut imgui = Context::create();
-
-    /* disable creation of files on disc */
-    imgui.set_ini_filename(None);
-    imgui.set_log_filename(None);
-
-    /* setup platform and renderer, and fonts to imgui */
-    imgui
-        .fonts()
-        .add_font(&[imgui::FontSource::DefaultFontData { config: None }]);
-
-    let amiga4ever_pro2 = imgui.fonts().add_font(&[FontSource::TtfData {
-        data: include_bytes!("../resources/amiga4ever-pro2.ttf"),
-        size_pixels: FONT_SIZE,
-        config: None,
-    }]);
-
-    /* create platform and renderer */
-    let mut platform = SdlPlatform::init(&mut imgui);
-    let mut renderer = AutoRenderer::initialize(gl, &mut imgui).unwrap();
-
-    /* start main loop */
-    let mut event_pump = sdl.event_pump().unwrap();
-
+    // The clear color
+    let mut color = [0.0, 0.0, 0.0, 1.0];
+    // Get the time before the loop started
+    let start_time = Instant::now();
+    let mut timestep = TimeStep::new();
+    let state = State::default();
+    let ctx = platform.context();
+    setup_custom_fonts(&ctx);
+    // The main loop
     'main: loop {
-        for event in event_pump.poll_iter() {
-            /* pass all events to imgui platfrom */
-            platform.handle_event(&mut imgui, &event);
+        // Update the time
+        platform.update_time(start_time.elapsed().as_secs_f64());
+        let ctx = platform.context();
 
-            if let Event::Quit { .. } = event {
-                break 'main;
-            }
-        }
-
-        /* call prepare_frame before calling imgui.new_frame() */
-        platform.prepare_frame(&mut imgui, &window, &event_pump);
-
-        let ui = imgui.new_frame();
-        let _w = ui
-            .window("main")
-            .flags(WindowFlags::NO_DECORATION | WindowFlags::NO_MOVE | WindowFlags::NO_BACKGROUND)
-            .content_size([800.0, 480.0])
-            .position([0.0, 0.0], Condition::Always)
-            .build(|| {
-                let _font = ui.push_font(amiga4ever_pro2);
-                render(&ui, &state);
+        // Get the egui context and begin drawing the frame
+        // Draw an egui window
+        egui::Area::new("launch_control")
+            .fixed_pos([0.0, 0.0])
+            .constrain(true)
+            .movable(false)
+            .show(&ctx, |ui| {
+                render(ui, &state);
             });
 
-        /* render */
-        let draw_data = imgui.render();
+        // Stop drawing the egui frame and get the full output
+        let full_output = platform.end_frame(&mut video)?;
+        // Get the paint jobs
+        let paint_jobs = platform.tessellate(&full_output);
+        let pj = paint_jobs.as_slice();
 
-        unsafe { renderer.gl_context().clear(glow::COLOR_BUFFER_BIT) };
-        renderer.render(draw_data).unwrap();
+        unsafe {
+            painter.gl().clear_color(color[0], color[1], color[2], 1.0);
+            painter.gl().clear(gl::COLOR_BUFFER_BIT);
+        }
 
+        let size = window.size();
+        painter.paint_and_update_textures([size.0, size.1], 1.0, pj, &full_output.textures_delta);
         window.gl_swap_window();
+        timestep.run_this(|_| {});
+
+        // Handle sdl events
+        for event in event_pump.poll_iter() {
+            // Handle sdl events
+            match event {
+                Event::Window {
+                    window_id,
+                    win_event,
+                    ..
+                } => {
+                    if window_id == window.id() {
+                        if let WindowEvent::Close = win_event {
+                            break 'main;
+                        }
+                    }
+                }
+                Event::KeyDown {
+                    keycode: Some(sdl2::keyboard::Keycode::Escape),
+                    ..
+                } => break 'main,
+                _ => {}
+            }
+            // Let the egui platform handle the event
+            platform.handle_event(&event, &sdl, &video);
+        }
+
+        if let Some(_fps) = timestep.frame_rate() {
+            println!("{:?}", _fps);
+        }
     }
+
+    Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    pollster::block_on(run())?;
+    Ok(())
 }

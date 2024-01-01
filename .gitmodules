@@ -1,0 +1,3 @@
+[submodule "modules/egui_sdl2_platform"]
+	path = modules/egui_sdl2_platform
+	url = git@github.com:ComLarsic/egui_sdl2_platform.git

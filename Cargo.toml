@@ -6,8 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-imgui = { version = "0.11.0"}
-sdl2 = "0.34.5"
-glow = "0.12.0"
-imgui-glow-renderer = { version = "0.11.0" }
-imgui-sdl2-support = "0.11.0"
+egui = { version="0.21", path="/Users/deets/software/vc/egui/crates/egui" }
+egui_sdl2_platform = { version="0.2.2", path="./modules/egui_sdl2_platform" }
+gl = "*"
+#egui_glow = "0.21"
+egui_glow = { version="0.21", path="/Users/deets/software/vc/egui/crates/egui_glow" }
+pollster = "0.2"
+anyhow = "1.0"
+
