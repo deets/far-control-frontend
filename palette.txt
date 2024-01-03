@@ -1,0 +1,41 @@
+- Tailwind
+
+{ 'bittersweet': { DEFAULT: '#ed6a5a', 100: '#3b0d07', 200: '#76190d', 300: '#b02614', 400: '#e6361f', 500: '#ed6a5a', 600: '#f0897b', 700: '#f4a69c', 800: '#f8c4bd', 900: '#fbe1de' }, 'prussian_blue': { DEFAULT: '#18314f', 100: '#050a10', 200: '#0a131f', 300: '#0e1d2f', 400: '#13273e', 500: '#18314f', 600: '#2b578c', 700: '#447ec5', 800: '#82a9d9', 900: '#c1d4ec' }, 'flax': { DEFAULT: '#ffee93', 100: '#514400', 200: '#a18900', 300: '#f2cd00', 400: '#ffe343', 500: '#ffee93', 600: '#fff2a9', 700: '#fff5bf', 800: '#fff9d4', 900: '#fffcea' }, 'verdigris': { DEFAULT: '#62bbc1', 100: '#11282a', 200: '#215053', 300: '#32787d', 400: '#42a0a6', 500: '#62bbc1', 600: '#82c8cd', 700: '#a1d6d9', 800: '#c0e3e6', 900: '#e0f1f2' }, 'steel_pink': { DEFAULT: '#b744b8', 100: '#240d24', 200: '#481b49', 300: '#6c286d', 400: '#903692', 500: '#b744b8', 600: '#c567c7', 700: '#d48dd5', 800: '#e2b3e3', 900: '#f1d9f1' } }
+
+- CSV
+
+ed6a5a,18314f,ffee93,62bbc1,b744b8
+
+- With #
+
+#ed6a5a, #18314f, #ffee93, #62bbc1, #b744b8
+
+
+#ed6a5a #3b0d07 #76190d #b02614 #e6361f #ed6a5a #f0897b #f4a69c #f8c4bd #fbe1de
+#18314f #050a10 #0a131f #0e1d2f #13273e #18314f #2b578c #447ec5 #82a9d9 #c1d4ec
+#ffee93 #514400 #a18900 #f2cd00 #ffe343 #ffee93 #fff2a9 #fff5bf #fff9d4 #fffcea
+#62bbc1 #11282a #215053 #32787d #42a0a6 #62bbc1 #82c8cd #a1d6d9 #c0e3e6 #e0f1f2
+#b744b8 #240d24 #481b49 #6c286d #903692 #b744b8 #c567c7 #d48dd5 #e2b3e3 #f1d9f1
+
+
+- Array
+
+["ed6a5a","18314f","ffee93","62bbc1","b744b8"]
+
+- Object
+
+{"Bittersweet":"ed6a5a","Prussian blue":"18314f","Flax":"ffee93","Verdigris":"62bbc1","Steel pink":"b744b8"}
+
+- Extended Array
+
+[{"name":"Bittersweet","hex":"ed6a5a","rgb":[237,106,90],"cmyk":[0,55,62,7],"hsb":[7,62,93],"hsl":[7,80,64],"lab":[61,49,34]},{"name":"Prussian blue","hex":"18314f","rgb":[24,49,79],"cmyk":[70,38,0,69],"hsb":[213,70,31],"hsl":[213,53,20],"lab":[20,1,-21]},{"name":"Flax","hex":"ffee93","rgb":[255,238,147],"cmyk":[0,7,42,0],"hsb":[51,42,100],"hsl":[51,100,79],"lab":[94,-6,46]},{"name":"Verdigris","hex":"62bbc1","rgb":[98,187,193],"cmyk":[49,3,0,24],"hsb":[184,49,76],"hsl":[184,43,57],"lab":[71,-25,-11]},{"name":"Steel pink","hex":"b744b8","rgb":[183,68,184],"cmyk":[1,63,0,28],"hsb":[299,63,72],"hsl":[299,46,49],"lab":[49,61,-39]}]
+
+- XML
+
+<palette>
+  <color name="Bittersweet" hex="ed6a5a" r="237" g="106" b="90" />
+  <color name="Prussian blue" hex="18314f" r="24" g="49" b="79" />
+  <color name="Flax" hex="ffee93" r="255" g="238" b="147" />
+  <color name="Verdigris" hex="62bbc1" r="98" g="187" b="193" />
+  <color name="Steel pink" hex="b744b8" r="183" g="68" b="184" />
+</palette>

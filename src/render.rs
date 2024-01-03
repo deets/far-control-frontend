@@ -1,60 +1,49 @@
-use egui::{FontFamily, FontTweak, RichText, Ui};
+use egui::{Color32, FontFamily, FontTweak, RichText, Stroke, Ui, Rect, Vec2};
 
-use crate::state::State;
+use crate::layout::colors::muted;
+use crate::state::{State, ActiveTab, ControlArea};
+use crate::layout as layout;
 
-// fn render_header(ui: &Ui, state: &State) {
-//     let [w, _h] = ui.window_content_region_max();
-//     ui.set_next_item_width(w / 2.0);
-//     ui.button("Observables");
-//     ui.label_text(label, text)
-//     ui.same_line();
-//     ui.set_next_item_width(w / 2.0);
-//     ui.button("Launch Control");
-// }
+fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect)
+{
+    let lt = rect.left_top();
+    let h = rect.height();
+    let left_width = rect.width() * split;
+    let right_width = rect.width() - left_width;
+    let mt = lt + Vec2::new(left_width, 0.0);
+    let left = Rect::from_min_size(lt, [left_width, h].into());
+    let right = Rect::from_min_size(mt, [right_width, h].into());
+    (left, right)
+}
 
-pub fn setup_custom_fonts(ctx: &egui::Context) {
-    // Start with the default fonts (we will be adding to them rather than replacing them).
-    let mut fonts = egui::FontDefinitions::default();
+fn render_header(ui: &mut Ui, state: &State) {
+    let desired_size = [ui.available_width(), ui.available_height() * layout::header::MARGIN];
+    let (_id, rect) = ui.allocate_space(desired_size.into());
+    ui.painter().rect(rect, 0.0, Color32::RED, Stroke::NONE);    
+    let (lr, rr) = split_rect_horizontally_at(&rect, 0.5);
+    let (active, background, active_rect) = match state.active {
+        ActiveTab::Observables => (layout::colors::OBSERVABLES, muted(layout::colors::LAUNCHCONTROL), lr),
+        ActiveTab::LaunchControl => (layout::colors::LAUNCHCONTROL, muted(layout::colors::OBSERVABLES), rr),
+    };
+    ui.painter().rect(rect, 0.0, background, Stroke::NONE);
+    ui.painter().rect(active_rect, 0.0, active, Stroke::NONE);
+}
 
-    // Install my own font (maybe supporting non-latin characters).
-    // .ttf and .otf files supported.
-    fonts.font_data.insert(
-        "amiga4ever".to_owned(),
-        egui::FontData::from_static(include_bytes!("../resources/amiga4ever-pro2.ttf")).tweak(
-            FontTweak {
-                scale: 1.2,            // make it smaller
-                y_offset_factor: 0.07, // move it down slightly
-                y_offset: 0.0,
-            },
-        ),
-    );
-    // Put my font first (highest priority) for proportional text:
-    fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .insert(0, "amiga4ever".to_owned());
-
-    // Put my font as last fallback for monospace:
-    fonts
-        .families
-        .entry(egui::FontFamily::Monospace)
-        .or_default()
-        .insert(0, "amiga4ever".to_owned());
-
-    // Tell egui to use these fonts:
-    for family in &fonts.families {
-        println!("family: {:?}", family);
-    }
-    ctx.set_fonts(fonts);
+fn render_body(ui: &mut Ui, state: &State) {
+    let desired_size = [ui.available_width(), ui.available_height()];
+    let (_id, rect) = ui.allocate_space(desired_size.into());
+    let color = match state.active {
+        ActiveTab::Observables => layout::colors::OBSERVABLES,
+        ActiveTab::LaunchControl => layout::colors::LAUNCHCONTROL,
+    };
+    let color = match state.control {
+        ControlArea::Tabs => muted(color),
+        ControlArea::Details => color
+    };
+    ui.painter().rect(rect, 0.0, color, Stroke::NONE);
 }
 
 pub fn render(ui: &mut Ui, state: &State) {
-    ui.label("Hello, world!");
-    if ui.button("Greet").clicked() {
-        println!("Hello, world!");
-    }
-    ui.horizontal(|ui| {
-        ui.label("Color: ");
-    });
+    render_header(ui, state);
+    render_body(ui, state);
 }

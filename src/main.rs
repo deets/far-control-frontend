@@ -2,21 +2,23 @@
 mod render;
 mod state;
 mod timestep;
+mod visualisation;
+mod layout;
 
 use std::{sync::Arc, time::Instant};
 
-use render::{render, setup_custom_fonts};
+use render::render;
 
 use egui_glow::glow::HasContext;
 use egui_sdl2_platform::sdl2;
 use sdl2::event::{Event, WindowEvent};
 use state::State;
 use timestep::TimeStep;
+use visualisation::setup_custom_fonts;
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 480;
 
-/// Runs the demo app
 async fn run() -> anyhow::Result<()> {
     // Initialize sdl
     let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;
