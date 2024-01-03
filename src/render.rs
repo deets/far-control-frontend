@@ -25,6 +25,10 @@ fn render_header(ui: &mut Ui, state: &State) {
         ActiveTab::Observables => (layout::colors::OBSERVABLES, muted(layout::colors::LAUNCHCONTROL), lr),
         ActiveTab::LaunchControl => (layout::colors::LAUNCHCONTROL, muted(layout::colors::OBSERVABLES), rr),
     };
+    let active = match state.control {
+        ControlArea::Details => muted(active),
+        ControlArea::Tabs => active,
+    };
     ui.painter().rect(rect, 0.0, background, Stroke::NONE);
     ui.painter().rect(active_rect, 0.0, active, Stroke::NONE);
 }

@@ -4,6 +4,7 @@ mod state;
 mod timestep;
 mod visualisation;
 mod layout;
+mod input;
 
 use std::{sync::Arc, time::Instant};
 
@@ -15,6 +16,7 @@ use sdl2::event::{Event, WindowEvent};
 use state::State;
 use timestep::TimeStep;
 use visualisation::setup_custom_fonts;
+
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 480;
@@ -56,7 +58,7 @@ async fn run() -> anyhow::Result<()> {
     // Get the time before the loop started
     let start_time = Instant::now();
     let mut timestep = TimeStep::new();
-    let state = State::default();
+    let mut state = State::default();
     let ctx = platform.context();
     setup_custom_fonts(&ctx);
     // The main loop
@@ -64,6 +66,7 @@ async fn run() -> anyhow::Result<()> {
         // Update the time
         platform.update_time(start_time.elapsed().as_secs_f64());
         let ctx = platform.context();
+        let mut input_events = vec![];
 
         // Get the egui context and begin drawing the frame
         // Draw an egui window
@@ -110,12 +113,28 @@ async fn run() -> anyhow::Result<()> {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     ..
                 } => break 'main,
+                Event::KeyDown {
+                    keycode,
+                    ..
+                } => {
+                    if let Some(keycode) = keycode {
+                    println!("match keycode");
+                        match keycode {
+                            sdl2::keyboard::Keycode::Space => { input_events.push(input::Event::Enter); }
+                            sdl2::keyboard::Keycode::Return => { input_events.push(input::Event::Enter); }
+                            sdl2::keyboard::Keycode::Backspace => { input_events.push(input::Event::Back); }
+                            sdl2::keyboard::Keycode::Left => { input_events.push(input::Event::Left(10)); }
+                            sdl2::keyboard::Keycode::Right => { input_events.push(input::Event::Right(10)); }
+                            _ => {}
+                        }
+                    }
+                }
                 _ => {}
             }
             // Let the egui platform handle the event
             platform.handle_event(&event, &sdl, &video);
         }
-
+        state.process_events(&input_events);
         if let Some(_fps) = timestep.frame_rate() {
             println!("{:?}", _fps);
         }
