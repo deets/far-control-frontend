@@ -1,4 +1,4 @@
-//! A simple example of how to create an sdl window with glow
+#![feature(assert_matches, slice_pattern, exclusive_range_pattern)]
 mod render;
 mod rqp;
 mod state;

@@ -75,6 +75,67 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NMEAFormatError<'a> {
+    FormatError,
+    NoChecksumError(&'a [u8]),
+    ChecksumError,
+}
+
+fn unhex<'a>(c: u8) -> Result<u8, NMEAFormatError<'a>> {
+    // I currently assume NMEA specifies upper case hex only
+    match c {
+        b'0'..=b'9' => Ok(c - 48),
+        b'A'..=b'F' => Ok(c - 55),
+        _ => Err(NMEAFormatError::ChecksumError),
+    }
+}
+
+fn verify_nmea_checksum<'a>(
+    message: &'a [u8],
+    upper: u8,
+    lower: u8,
+) -> Result<&'a [u8], NMEAFormatError> {
+    let checksum = unhex(upper)? << 4 | unhex(lower)?;
+    let mut running = 0;
+    for c in message {
+        running = running ^ c;
+    }
+    if running == checksum {
+        Ok(message)
+    } else {
+        Err(NMEAFormatError::ChecksumError)
+    }
+}
+
+fn verify_inner_nmea<'a>(message: &'a [u8]) -> Result<&'a [u8], NMEAFormatError> {
+    // messages without checksum are valid, but we return them as error containing the
+    // reference.
+    match message.len() {
+        0..2 => Err(NMEAFormatError::NoChecksumError(message)),
+        n => {
+            // the checksum is a 2-digit-hexadecimal ASCII string prefixed
+            // by *, so let's check for that
+            match message[n - 3] {
+                b'*' => verify_nmea_checksum(&message[0..n - 3], message[n - 2], message[n - 1]),
+                _ => Err(NMEAFormatError::NoChecksumError(message)),
+            }
+        }
+    }
+}
+
+pub fn verify_nmea_format<'a>(message: &'a [u8]) -> Result<&'a [u8], NMEAFormatError> {
+    match message.len() {
+        0..2 => Err(NMEAFormatError::FormatError),
+        n => {
+            if message[0] == START_DELIMITER && message[n - 1] == LF && message[n - 2] == CR {
+                return verify_inner_nmea(&message[1..n - 2]);
+            }
+            return Err(NMEAFormatError::FormatError);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +197,24 @@ mod tests {
             })
             .expect("should've worked");
         assert!(called);
+    }
+
+    #[test]
+    fn test_nmea_format_verification() {
+        assert_eq!(Err(NMEAFormatError::FormatError), verify_nmea_format(b""));
+        assert_eq!(Err(NMEAFormatError::FormatError), verify_nmea_format(b""));
+        assert_eq!(
+            Ok(b"PFEC,GPint,RMC05".as_slice()),
+            verify_nmea_format(b"$PFEC,GPint,RMC05*2D\r\n")
+        );
+        assert_eq!(
+            Err(NMEAFormatError::NoChecksumError(b"".as_slice())),
+            verify_nmea_format(b"$\r\n")
+        );
+
+        assert_eq!(
+            Err(NMEAFormatError::ChecksumError),
+            verify_nmea_format(b"$PFEC,GPint,RMC05*2E\r\n")
+        );
     }
 }
