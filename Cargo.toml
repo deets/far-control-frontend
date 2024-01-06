@@ -14,3 +14,4 @@ egui_glow = "0.21"
 pollster = "0.2"
 anyhow = "1.0"
 
+ringbuffer = "0.15.0"
