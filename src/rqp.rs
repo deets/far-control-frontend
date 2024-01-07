@@ -1,8 +1,10 @@
 use ringbuffer::RingBuffer;
 
 const START_DELIMITER: u8 = b'$';
+const CHECKSUM_DELIMITER: u8 = b'*';
 const CR: u8 = b'\r';
 const LF: u8 = b'\n';
+const MAX_BUFFER_SIZE: usize = 82; // NMEA standard size!
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -18,7 +20,7 @@ enum State {
 struct SentenceParser<'a, RB> {
     state: State,
     ring_buffer: &'a mut RB,
-    output_buffer: [u8; 82], // NMEA standard size!
+    output_buffer: [u8; MAX_BUFFER_SIZE],
 }
 
 impl<'a, RB> SentenceParser<'a, RB>
@@ -80,6 +82,8 @@ pub enum NMEAFormatError<'a> {
     FormatError,
     NoChecksumError(&'a [u8]),
     ChecksumError,
+    SentenceTooLongError,
+    NoSentenceAvailable,
 }
 
 fn unhex<'a>(c: u8) -> Result<u8, NMEAFormatError<'a>> {
@@ -136,8 +140,66 @@ pub fn verify_nmea_format<'a>(message: &'a [u8]) -> Result<&'a [u8], NMEAFormatE
     }
 }
 
+pub struct NMEAFormatter {
+    buffer: [u8; MAX_BUFFER_SIZE],
+    len: Option<usize>,
+}
+
+impl Default for NMEAFormatter {
+    fn default() -> Self {
+        Self {
+            buffer: [0; MAX_BUFFER_SIZE],
+            len: None,
+        }
+    }
+}
+
+impl NMEAFormatter {
+    pub fn buffer(&self) -> Result<&[u8], NMEAFormatError> {
+        Ok(&self.buffer[0..self.len.ok_or(NMEAFormatError::NoSentenceAvailable)?])
+    }
+
+    pub fn format_sentence(&mut self, output: &[u8]) -> Result<(), NMEAFormatError> {
+        match output.len() {
+            d if d > (MAX_BUFFER_SIZE - 6) => Err(NMEAFormatError::SentenceTooLongError),
+            _ => {
+                self.buffer[0] = START_DELIMITER;
+                let mut checksum = 0;
+                for (index, char) in output.into_iter().enumerate() {
+                    self.buffer[1 + index] = *char;
+                    checksum = checksum ^ *char;
+                }
+                self.buffer[output.len() + 1] = CHECKSUM_DELIMITER;
+                (self.buffer[output.len() + 2], self.buffer[output.len() + 3]) =
+                    (nibble_to_hex(checksum >> 4), nibble_to_hex(checksum & 0x0f));
+                self.buffer[output.len() + 4] = CR;
+                self.buffer[output.len() + 5] = LF;
+                self.len = Some(output.len() + 6);
+                Ok(())
+            }
+        }
+    }
+}
+
+fn nibble_to_hex(nibble: u8) -> u8 {
+    match nibble {
+        0..10 => nibble + 48, // ascii 0
+        _ => nibble + 55,     // ascii A - 10
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use nom::{
+        bytes::complete::{tag, take_while_m_n},
+        character::{is_digit, is_hex_digit},
+        multi::many1,
+        sequence::separated_pair,
+        IResult,
+    };
+
     use super::*;
 
     #[test]
@@ -215,6 +277,74 @@ mod tests {
         assert_eq!(
             Err(NMEAFormatError::ChecksumError),
             verify_nmea_format(b"$PFEC,GPint,RMC05*2E\r\n")
+        );
+    }
+
+    #[test]
+    fn test_nmea_formatter() {
+        let mut formatter = NMEAFormatter::default();
+        formatter.format_sentence(b"PFEC,GPint,RMC05").unwrap();
+        assert_eq!(
+            Ok(b"$PFEC,GPint,RMC05*2D\r\n".as_slice()),
+            formatter.buffer()
+        );
+    }
+
+    fn hex_byte(s: &[u8]) -> IResult<&[u8], u8> {
+        let (rest, out) = take_while_m_n(2, 2, is_hex_digit)(s)?;
+        Ok((rest, unhex(out[0]).unwrap() << 4 | unhex(out[1]).unwrap()))
+    }
+
+    fn timestamp_unit(s: &[u8]) -> IResult<&[u8], u8> {
+        let (rest, out) = take_while_m_n(2, 2, is_digit)(s)?;
+        Ok((rest, (out[0] - 48) * 10 + out[1] - 48))
+    }
+
+    fn timestamp_prefix(s: &[u8]) -> IResult<&[u8], Vec<u8>> {
+        many1(timestamp_unit)(s)
+    }
+
+    fn timestamp_suffix(s: &[u8]) -> IResult<&[u8], Duration> {
+        let (rest, out) = take_while_m_n(1, 6, is_digit)(s)?;
+        let mut accu: u64 = 0;
+        for c in out {
+            accu *= 10;
+            accu += (*c - 48) as u64;
+        }
+        // We need to multiply out what we are missing to a
+        // microsecond value
+        for _ in 0..(6 - out.len()) {
+            accu *= 10;
+        }
+        Ok((rest, Duration::from_micros(accu)))
+    }
+
+    fn timestamp(s: &[u8]) -> IResult<&[u8], (Vec<u8>, Duration)> {
+        separated_pair(timestamp_prefix, tag(b"."), timestamp_suffix)(s)
+    }
+
+    #[test]
+    fn test_timestamp_parsing() {
+        assert_eq!(timestamp_unit(b"123456"), Ok((&b"3456"[..], 12)));
+        assert_eq!(
+            timestamp_prefix(b"123456"),
+            Ok((b"".as_slice(), vec![12, 34, 56]))
+        );
+        assert_eq!(
+            timestamp_suffix(b"000001"),
+            Ok((b"".as_slice(), Duration::from_micros(1)))
+        );
+        assert_eq!(
+            timestamp_suffix(b"1"),
+            Ok((b"".as_slice(), Duration::from_micros(100000)))
+        );
+
+        assert_eq!(
+            timestamp(b"123456.1"),
+            Ok((
+                b"".as_slice(),
+                (vec![12, 34, 56], Duration::from_micros(100000))
+            ))
         );
     }
 }
