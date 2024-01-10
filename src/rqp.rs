@@ -195,10 +195,12 @@ mod tests {
     use nom::{
         bytes::complete::{tag, take_while_m_n},
         character::{is_digit, is_hex_digit},
-        multi::many1,
-        sequence::separated_pair,
+        multi::many1_count,
+        sequence::{separated_pair, tuple},
         IResult,
     };
+
+    use crate::rqprotocol::RqTimestamp;
 
     use super::*;
 
@@ -300,8 +302,30 @@ mod tests {
         Ok((rest, (out[0] - 48) * 10 + out[1] - 48))
     }
 
-    fn timestamp_prefix(s: &[u8]) -> IResult<&[u8], Vec<u8>> {
-        many1(timestamp_unit)(s)
+    fn timestamp_prefix(s: &[u8]) -> IResult<&[u8], (Option<u8>, Option<u8>, u8)> {
+        let (rest, count) = many1_count(timestamp_unit)(s)?;
+        let prefix = &s[0..count * 2];
+        let (mut hour, mut minute) = (None, None);
+        let mut seconds = 0;
+        match count {
+            3 => {
+                let (_, (h, m, s)) =
+                    tuple((timestamp_unit, timestamp_unit, timestamp_unit))(prefix)?;
+                (hour, minute) = (Some(h), Some(m));
+                seconds = s;
+            }
+            2 => {
+                let (_, (m, s)) = tuple((timestamp_unit, timestamp_unit))(prefix)?;
+                minute = Some(m);
+                seconds = s;
+            }
+            1 => {
+                let (_, s) = timestamp_unit(prefix)?;
+                seconds = s;
+            }
+            _ => unreachable!(),
+        }
+        Ok((rest, (hour, minute, seconds)))
     }
 
     fn timestamp_suffix(s: &[u8]) -> IResult<&[u8], Duration> {
@@ -319,8 +343,18 @@ mod tests {
         Ok((rest, Duration::from_micros(accu)))
     }
 
-    fn timestamp(s: &[u8]) -> IResult<&[u8], (Vec<u8>, Duration)> {
-        separated_pair(timestamp_prefix, tag(b"."), timestamp_suffix)(s)
+    fn timestamp(s: &[u8]) -> IResult<&[u8], RqTimestamp> {
+        let (rest, (prefix, fractional)) =
+            separated_pair(timestamp_prefix, tag(b"."), timestamp_suffix)(s)?;
+        Ok((
+            rest,
+            RqTimestamp {
+                hour: prefix.0,
+                minute: prefix.1,
+                seconds: prefix.2,
+                fractional,
+            },
+        ))
     }
 
     #[test]
@@ -328,7 +362,7 @@ mod tests {
         assert_eq!(timestamp_unit(b"123456"), Ok((&b"3456"[..], 12)));
         assert_eq!(
             timestamp_prefix(b"123456"),
-            Ok((b"".as_slice(), vec![12, 34, 56]))
+            Ok((b"".as_slice(), (Some(12), Some(34), 56)))
         );
         assert_eq!(
             timestamp_suffix(b"000001"),
@@ -343,7 +377,36 @@ mod tests {
             timestamp(b"123456.1"),
             Ok((
                 b"".as_slice(),
-                (vec![12, 34, 56], Duration::from_micros(100000))
+                (RqTimestamp {
+                    hour: Some(12),
+                    minute: Some(34),
+                    seconds: 56,
+                    fractional: Duration::from_micros(100000)
+                })
+            ))
+        );
+        assert_eq!(
+            timestamp(b"3456.1"),
+            Ok((
+                b"".as_slice(),
+                (RqTimestamp {
+                    hour: None,
+                    minute: Some(34),
+                    seconds: 56,
+                    fractional: Duration::from_micros(100000)
+                })
+            ))
+        );
+        assert_eq!(
+            timestamp(b"56.1"),
+            Ok((
+                b"".as_slice(),
+                (RqTimestamp {
+                    hour: None,
+                    minute: None,
+                    seconds: 56,
+                    fractional: Duration::from_micros(100000)
+                })
             ))
         );
     }

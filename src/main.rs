@@ -1,6 +1,7 @@
 #![feature(assert_matches, slice_pattern, exclusive_range_pattern)]
 mod render;
 mod rqp;
+mod rqprotocol;
 mod state;
 mod timestep;
 mod visualisation;
