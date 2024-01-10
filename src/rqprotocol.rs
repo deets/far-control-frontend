@@ -9,13 +9,8 @@ pub struct RqTimestamp {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum AvionicsModel {
-    RedQueen,
-    Farduino,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Node {
-    pub model: AvionicsModel,
-    pub identifier: u8,
+pub enum Node {
+    RedQueen(u8),  // RQ<X>
+    Farduino(u8),  // FD<X>
+    LaunchControl, // LNC
 }

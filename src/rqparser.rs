@@ -201,7 +201,7 @@ mod tests {
         IResult,
     };
 
-    use crate::rqprotocol::{AvionicsModel, Node, RqTimestamp};
+    use crate::rqprotocol::{Node, RqTimestamp};
 
     use super::*;
 
@@ -412,56 +412,41 @@ mod tests {
         );
     }
 
-    fn node_model(s: &[u8]) -> IResult<&[u8], AvionicsModel> {
-        let (rest, result) = alt((tag(b"RQ"), tag(b"FD")))(s)?;
-        match result {
-            b"RQ" => Ok((rest, AvionicsModel::RedQueen)),
-            b"FD" => Ok((rest, AvionicsModel::Farduino)),
+    fn avionics_parser(s: &[u8]) -> IResult<&[u8], Node> {
+        let (rest, (praefix, identifier)) = tuple((alt((tag(b"RQ"), tag(b"FD"))), alpha1))(s)?;
+        match praefix {
+            b"RQ" => Ok((rest, Node::RedQueen(identifier[0]))),
+            b"FD" => Ok((rest, Node::Farduino(identifier[0]))),
             _ => unreachable!(),
         }
     }
 
-    fn node_parser(s: &[u8]) -> IResult<&[u8], Node> {
-        let (rest, (model, identifier)) = tuple((node_model, alpha1))(s)?;
-        Ok((
-            rest,
-            Node {
-                model,
-                identifier: identifier[0],
-            },
-        ))
+    fn lnc_parser(s: &[u8]) -> IResult<&[u8], Node> {
+        let (rest, _) = tag(b"LNC")(s)?;
+        Ok((rest, Node::LaunchControl))
     }
+
+    fn node_parser(s: &[u8]) -> IResult<&[u8], Node> {
+        alt((lnc_parser, avionics_parser))(s)
+    }
+
     #[test]
     fn test_node_parsing() {
         assert_eq!(
             node_parser(b"RQA"),
-            Ok((
-                b"".as_slice(),
-                (Node {
-                    model: AvionicsModel::RedQueen,
-                    identifier: b'A'
-                })
-            ))
+            Ok((b"".as_slice(), Node::RedQueen(b'A')),)
         );
         assert_eq!(
             node_parser(b"RQB"),
-            Ok((
-                b"".as_slice(),
-                (Node {
-                    model: AvionicsModel::RedQueen,
-                    identifier: b'B'
-                })
-            ))
+            Ok((b"".as_slice(), Node::RedQueen(b'B')),)
         );
         assert_eq!(
             node_parser(b"FDC"),
-            Ok((
-                b"".as_slice(),
-                (Node {
-                    model: AvionicsModel::Farduino,
-                    identifier: b'C'
-                })
-            ))
+            Ok((b"".as_slice(), Node::Farduino(b'C')),)
+        );
+        assert_eq!(
+            node_parser(b"LNC"),
+            Ok((b"".as_slice(), Node::LaunchControl,))
         );
     }
 }
