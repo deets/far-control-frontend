@@ -7,3 +7,15 @@ pub struct RqTimestamp {
     pub seconds: u8,
     pub fractional: Duration,
 }
+
+#[derive(Debug, PartialEq)]
+pub enum AvionicsModel {
+    RedQueen,
+    Farduino,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Node {
+    pub model: AvionicsModel,
+    pub identifier: u8,
+}

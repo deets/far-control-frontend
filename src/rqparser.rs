@@ -193,14 +193,15 @@ mod tests {
     use std::time::Duration;
 
     use nom::{
+        branch::alt,
         bytes::complete::{tag, take_while_m_n},
-        character::{is_digit, is_hex_digit},
+        character::{complete::alpha1, is_digit, is_hex_digit},
         multi::many1_count,
         sequence::{separated_pair, tuple},
         IResult,
     };
 
-    use crate::rqprotocol::RqTimestamp;
+    use crate::rqprotocol::{AvionicsModel, Node, RqTimestamp};
 
     use super::*;
 
@@ -343,7 +344,7 @@ mod tests {
         Ok((rest, Duration::from_micros(accu)))
     }
 
-    fn timestamp(s: &[u8]) -> IResult<&[u8], RqTimestamp> {
+    fn timestamp_parser(s: &[u8]) -> IResult<&[u8], RqTimestamp> {
         let (rest, (prefix, fractional)) =
             separated_pair(timestamp_prefix, tag(b"."), timestamp_suffix)(s)?;
         Ok((
@@ -374,7 +375,7 @@ mod tests {
         );
 
         assert_eq!(
-            timestamp(b"123456.1"),
+            timestamp_parser(b"123456.1"),
             Ok((
                 b"".as_slice(),
                 (RqTimestamp {
@@ -386,7 +387,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            timestamp(b"3456.1"),
+            timestamp_parser(b"3456.1"),
             Ok((
                 b"".as_slice(),
                 (RqTimestamp {
@@ -398,7 +399,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            timestamp(b"56.1"),
+            timestamp_parser(b"56.1"),
             Ok((
                 b"".as_slice(),
                 (RqTimestamp {
@@ -406,6 +407,59 @@ mod tests {
                     minute: None,
                     seconds: 56,
                     fractional: Duration::from_micros(100000)
+                })
+            ))
+        );
+    }
+
+    fn node_model(s: &[u8]) -> IResult<&[u8], AvionicsModel> {
+        let (rest, result) = alt((tag(b"RQ"), tag(b"FD")))(s)?;
+        match result {
+            b"RQ" => Ok((rest, AvionicsModel::RedQueen)),
+            b"FD" => Ok((rest, AvionicsModel::Farduino)),
+            _ => unreachable!(),
+        }
+    }
+
+    fn node_parser(s: &[u8]) -> IResult<&[u8], Node> {
+        let (rest, (model, identifier)) = tuple((node_model, alpha1))(s)?;
+        Ok((
+            rest,
+            Node {
+                model,
+                identifier: identifier[0],
+            },
+        ))
+    }
+    #[test]
+    fn test_node_parsing() {
+        assert_eq!(
+            node_parser(b"RQA"),
+            Ok((
+                b"".as_slice(),
+                (Node {
+                    model: AvionicsModel::RedQueen,
+                    identifier: b'A'
+                })
+            ))
+        );
+        assert_eq!(
+            node_parser(b"RQB"),
+            Ok((
+                b"".as_slice(),
+                (Node {
+                    model: AvionicsModel::RedQueen,
+                    identifier: b'B'
+                })
+            ))
+        );
+        assert_eq!(
+            node_parser(b"FDC"),
+            Ok((
+                b"".as_slice(),
+                (Node {
+                    model: AvionicsModel::Farduino,
+                    identifier: b'C'
                 })
             ))
         );
