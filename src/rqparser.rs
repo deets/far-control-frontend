@@ -181,7 +181,7 @@ impl NMEAFormatter {
     }
 }
 
-fn nibble_to_hex(nibble: u8) -> u8 {
+pub fn nibble_to_hex(nibble: u8) -> u8 {
     match nibble {
         0..10 => nibble + 48, // ascii 0
         _ => nibble + 55,     // ascii A - 10
