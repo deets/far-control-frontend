@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{ops::Range, time::Duration};
 
 use crate::rqparser::nibble_to_hex;
 
@@ -65,98 +65,142 @@ struct Transaction {
 }
 
 trait Serialize {
-    fn serialize<'a>(&self, buffer: &'a mut [u8]) -> Result<usize, Error>;
+    fn serialize<'a>(
+        &self,
+        buffer: &'a mut [u8],
+        range: Range<usize>,
+    ) -> Result<Range<usize>, Error>;
+}
+
+fn range_check(inner: &Range<usize>, outer: &Range<usize>) -> Result<(), Error> {
+    // We encode a special-case here: if the inner range is right at the
+    // end of the interval it is allowed to be empty. This facilitates
+    // checking for the resulting range being still valid filling up
+    // the buffer to the end.
+    if inner.is_empty() && inner.end == outer.end {
+        Ok(())
+    } else {
+        // Range is half-open right, so this should work
+        if outer.contains(&inner.start) && outer.contains(&(inner.end - 1)) {
+            Ok(())
+        } else {
+            Err(Error::BufferLengthError)
+        }
+    }
+}
+
+fn range_check_for_length(
+    inner: &Range<usize>,
+    outer: &Range<usize>,
+    len: usize,
+) -> Result<(), Error> {
+    if inner.end - inner.start >= len {
+        range_check(inner, outer)?;
+        range_check(&(inner.start + len..inner.end), outer)
+    } else {
+        Err(Error::BufferLengthError)
+    }
+}
+
+fn range_check_buffer_for_length(
+    range: &Range<usize>,
+    buffer: &[u8],
+    len: usize,
+) -> Result<(), Error> {
+    range_check_for_length(range, &(0..buffer.len()), len)
 }
 
 impl Serialize for Node {
-    fn serialize<'a>(&self, buffer: &'a mut [u8]) -> Result<usize, Error> {
-        match buffer.len() {
-            d if d < 3 => Err(Error::BufferLengthError),
-            _ => {
-                match self {
-                    Node::RedQueen(n) => {
-                        buffer[0..2].copy_from_slice(b"RQ");
-                        buffer[2] = *n;
-                    }
-                    Node::Farduino(n) => {
-                        buffer[0..2].copy_from_slice(b"FD");
-                        buffer[2] = *n;
-                    }
-                    Node::LaunchControl => {
-                        buffer[0..3].copy_from_slice(b"LNC");
-                    }
-                }
-                Ok(3)
-            }
-        }
-    }
-}
-
-impl Transaction {
-    fn serialize_count(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        let (a, b, c) = ((self.id / 100 % 10), (self.id / 10 % 10), self.id % 10);
-        buffer[0] = a as u8 + b'0';
-        buffer[1] = b as u8 + b'0';
-        buffer[2] = c as u8 + b'0';
-        Ok(3)
-    }
-}
-
-fn u8_parameter(buffer: &mut [u8], param: u8) -> Result<usize, Error> {
-    match buffer.len() {
-        d if d < 3 => Err(Error::BufferLengthError),
-        _ => {
-            buffer[0] = b',';
-            buffer[1] = nibble_to_hex(param >> 4);
-            buffer[2] = nibble_to_hex(param & 0xf);
-            Ok(3)
-        }
-    }
-}
-impl Serialize for Command {
-    fn serialize<'a>(&self, buffer: &'a mut [u8]) -> Result<usize, Error> {
+    fn serialize<'a>(
+        &self,
+        buffer: &'a mut [u8],
+        range: Range<usize>,
+    ) -> Result<Range<usize>, Error> {
+        range_check_buffer_for_length(&range, buffer, 3)?;
         match self {
-            Command::Reset => Ok(0),
-            Command::LaunchSecretPartial(a) => u8_parameter(buffer, *a),
-            Command::LaunchSecretFull(a, b) => {
-                if buffer.len() >= 6 {
-                    u8_parameter(buffer, *a)?;
-                    u8_parameter(&mut buffer[3..6], *b)?;
-                    Ok(6)
-                } else {
-                    Err(Error::BufferLengthError)
-                }
+            Node::RedQueen(n) => {
+                buffer[range.clone()][0..2].copy_from_slice(b"RQ");
+                buffer[range.clone()][2] = *n;
             }
-            Command::Ignition => Ok(0),
+            Node::Farduino(n) => {
+                buffer[range.clone()][0..2].copy_from_slice(b"FD");
+                buffer[range.clone()][2] = *n;
+            }
+            Node::LaunchControl => {
+                buffer[range.clone()][0..3].copy_from_slice(b"LNC");
+            }
+        }
+        Ok(range.start + 3..range.end)
+    }
+}
+
+fn u8_parameter(buffer: &mut [u8], range: Range<usize>, param: u8) -> Result<Range<usize>, Error> {
+    range_check_buffer_for_length(&range, buffer, 3)?;
+    let data: [u8; 3] = [b',', nibble_to_hex(param >> 4), nibble_to_hex(param & 0xf)];
+    buffer[range.clone()][0..3].copy_from_slice(&data);
+    Ok(range.start + 3..range.end)
+}
+
+impl Serialize for Command {
+    fn serialize<'a>(
+        &self,
+        buffer: &'a mut [u8],
+        range: Range<usize>,
+    ) -> Result<Range<usize>, Error> {
+        match self {
+            Command::Reset => Ok(range),
+            Command::LaunchSecretPartial(a) => u8_parameter(buffer, range, *a),
+            Command::LaunchSecretFull(a, b) => {
+                let range = u8_parameter(buffer, range, *a)?;
+                u8_parameter(buffer, range, *b)
+            }
+            Command::Ignition => Ok(0..10),
         }
     }
 }
+
+fn append_bytes(buffer: &mut [u8], range: Range<usize>, s: &[u8]) -> Result<Range<usize>, Error> {
+    range_check(&range, &(0..buffer.len()))?;
+    range_check(&(range.start + s.len()..range.end), &(0..buffer.len()))?;
+    for (i, c) in s.iter().enumerate() {
+        buffer[range.start + i] = *c;
+    }
+    Ok(range.start + s.len()..range.end)
+}
+
+fn serialize_count(
+    buffer: &mut [u8],
+    range: Range<usize>,
+    id: usize,
+) -> Result<Range<usize>, Error> {
+    range_check_buffer_for_length(&range, buffer, 3)?;
+    let (a, b, c) = ((id / 100 % 10), (id / 10 % 10), id % 10);
+    let data: [u8; 3] = [a as u8 + b'0', b as u8 + b'0', c as u8 + b'0'];
+    buffer[range.clone()][0..3].copy_from_slice(&data);
+    Ok(range.start + 3..range.end)
+}
+
 impl Serialize for Transaction {
-    fn serialize<'a>(&self, buffer: &'a mut [u8]) -> Result<usize, Error> {
-        let mut consumed = 0;
-        let total = buffer.len();
-        consumed += self.sender.serialize(buffer)?;
-        buffer[consumed..consumed + 4].copy_from_slice(b"CMD,");
-        consumed += 4;
-        let verb = self.command.verb();
-        buffer[consumed..consumed + verb.len()].copy_from_slice(verb);
-        consumed += verb.len();
-        buffer[consumed..consumed + 1].copy_from_slice(b",");
-        consumed += 1;
-        consumed += self.serialize_count(&mut buffer[consumed..consumed + 3])?;
-        buffer[consumed..consumed + 1].copy_from_slice(b",");
-        consumed += 1;
-        consumed += self
-            .recipient
-            .serialize(&mut buffer[consumed..consumed + 3])?;
-        consumed += self.command.serialize(&mut buffer[consumed..total])?;
-        Ok(consumed)
+    fn serialize<'a>(
+        &self,
+        buffer: &'a mut [u8],
+        range: Range<usize>,
+    ) -> Result<Range<usize>, Error> {
+        let range = self.sender.serialize(buffer, range)?;
+        let range = append_bytes(buffer, range, b"CMD,")?;
+        let range = append_bytes(buffer, range, self.command.verb())?;
+        let range = append_bytes(buffer, range, b",")?;
+        let range = serialize_count(buffer, range, self.id)?;
+        let range = append_bytes(buffer, range, b",")?;
+        let range = self.recipient.serialize(buffer, range)?;
+        Ok(self.command.serialize(buffer, range)?)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::rqparser::NMEAFormatter;
+    use std::assert_matches::assert_matches;
 
     use super::*;
 
@@ -174,12 +218,36 @@ mod tests {
         };
 
         let mut dest: [u8; 82] = [0; 82];
-        let length = t.serialize(&mut dest).unwrap();
+        let remaining = t.serialize(&mut dest, 0..82).unwrap();
         let mut formatter = NMEAFormatter::default();
-        let _result = formatter.format_sentence(&dest[0..length]).unwrap();
+        let _result = formatter
+            .format_sentence(&dest[0..remaining.start])
+            .unwrap();
         assert_eq!(
             formatter.buffer().unwrap(),
             b"$LNCCMD,SECRET_A,123,RQA,3F*04\r\n".as_slice()
         );
+    }
+
+    #[test]
+    fn test_range_check() {
+        assert_matches!(range_check(&(0..9), &(0..10)), Ok(_));
+        assert_matches!(range_check(&(0..10), &(0..10)), Ok(_));
+        assert_matches!(range_check(&(1..10), &(0..10)), Ok(_));
+        assert_matches!(range_check(&(1..11), &(0..10)), Err(_));
+        assert_matches!(range_check(&(0..10), &(1..10)), Err(_));
+    }
+
+    #[test]
+    fn test_too_small_buffer_handling() {
+        let sender = Node::LaunchControl;
+        let mut dest: [u8; 10] = [0; 10];
+        assert_matches!(sender.serialize(&mut dest, 0..10), Ok(_));
+        assert_eq!(&dest[0..3], b"LNC");
+        assert_matches!(sender.serialize(&mut dest, 1..10), Ok(_));
+        assert_eq!(&dest[1..4], b"LNC");
+        assert_matches!(sender.serialize(&mut dest, 7..10), Ok(_));
+        assert_eq!(&dest[7..10], b"LNC");
+        assert_matches!(sender.serialize(&mut dest, 0..2), Err(_));
     }
 }
