@@ -190,18 +190,18 @@ pub fn nibble_to_hex(nibble: u8) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{assert_matches::assert_matches, time::Duration};
 
     use nom::{
         branch::alt,
         bytes::complete::{tag, take_while_m_n},
-        character::{complete::alpha1, is_digit, is_hex_digit},
+        character::{complete::alphanumeric1, is_alphabetic, is_digit, is_hex_digit},
         multi::many1_count,
-        sequence::{separated_pair, tuple},
+        sequence::{preceded, separated_pair, tuple},
         IResult,
     };
 
-    use crate::rqprotocol::{Node, RqTimestamp};
+    use crate::rqprotocol::{Node, Response, RqTimestamp};
 
     use super::*;
 
@@ -413,7 +413,10 @@ mod tests {
     }
 
     fn avionics_parser(s: &[u8]) -> IResult<&[u8], Node> {
-        let (rest, (praefix, identifier)) = tuple((alt((tag(b"RQ"), tag(b"FD"))), alpha1))(s)?;
+        let (rest, (praefix, identifier)) = tuple((
+            alt((tag(b"RQ"), tag(b"FD"))),
+            take_while_m_n(1, 1, is_alphabetic),
+        ))(s)?;
         match praefix {
             b"RQ" => Ok((rest, Node::RedQueen(identifier[0]))),
             b"FD" => Ok((rest, Node::Farduino(identifier[0]))),
@@ -447,6 +450,90 @@ mod tests {
         assert_eq!(
             node_parser(b"LNC"),
             Ok((b"".as_slice(), Node::LaunchControl,))
+        );
+        assert_eq!(
+            node_parser(b"RQBFOO"),
+            Ok((b"FOO".as_slice(), Node::RedQueen(b'B')),)
+        );
+    }
+
+    fn command_id_parser(s: &[u8]) -> IResult<&[u8], usize> {
+        let (rest, bytes) = take_while_m_n(3, 3, is_digit)(s)?;
+        let a = (bytes[0] - b'0') as usize;
+        let b = (bytes[1] - b'0') as usize;
+        let c = (bytes[2] - b'0') as usize;
+        Ok((rest, (a * 100 + b * 10 + c)))
+    }
+
+    #[test]
+    fn test_command_id_parser() {
+        assert_matches!(command_id_parser(b"123"), Ok((_, 123)));
+    }
+
+    fn ack_parser(s: &[u8]) -> IResult<&[u8], Result<Response, Response>> {
+        let (rest, (source, acknowledgement, _, timestamp, _, sender, _, id)) = tuple((
+            node_parser,
+            alt((tag(b"ACK"), tag(b"NAK"))),
+            tag(b","),
+            timestamp_parser,
+            tag(b","),
+            node_parser,
+            tag(b","),
+            command_id_parser,
+        ))(s)?;
+        let response = Response {
+            source,
+            sender,
+            timestamp,
+            id,
+        };
+        match acknowledgement {
+            b"ACK" => Ok((rest, Ok(response))),
+            b"NAK" => Ok((rest, Err(response))),
+            _ => unreachable!(),
+        }
+    }
+
+    fn ack_one_return_value_parser(
+        s: &[u8],
+    ) -> IResult<&[u8], Result<(Response, &[u8]), Response>> {
+        let (rest, response) = ack_parser(s)?;
+        match response {
+            Ok(response) => {
+                let (rest, param) = preceded(tag(b","), alphanumeric1)(rest)?;
+                Ok((rest, Ok((response, param))))
+            }
+            Err(response) => Ok((rest, Err(response))),
+        }
+    }
+
+    fn ack_two_return_value_parser(
+        s: &[u8],
+    ) -> IResult<&[u8], Result<(Response, &[u8], &[u8]), Response>> {
+        let (rest, response) = ack_parser(s)?;
+        match response {
+            Ok(response) => {
+                let (rest, (param1, param2)) = tuple((
+                    preceded(tag(b","), alphanumeric1),
+                    preceded(tag(b","), alphanumeric1),
+                ))(rest)?;
+                Ok((rest, Ok((response, param1, param2))))
+            }
+            Err(response) => Ok((rest, Err(response))),
+        }
+    }
+
+    #[test]
+    fn test_ack_parsing() {
+        let inner_sentence = b"RQEACK,123456.012,LNC,123";
+        assert_matches!(ack_parser(inner_sentence), Ok((_, _)));
+        assert_matches!(
+            ack_one_return_value_parser(b"RQEACK,123456.012,LNC,123,foobar"),
+            Ok((b"", Ok((_, b"foobar"))))
+        );
+        assert_matches!(
+            ack_two_return_value_parser(b"RQEACK,123456.012,LNC,123,foo,bar"),
+            Ok((b"", Ok((_, b"foo", b"bar"))))
         );
     }
 }

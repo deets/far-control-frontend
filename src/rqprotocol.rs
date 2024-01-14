@@ -2,6 +2,11 @@ use std::{ops::Range, time::Duration};
 
 use crate::rqparser::nibble_to_hex;
 
+#[derive(Debug)]
+enum Error {
+    BufferLengthError,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct RqTimestamp {
     pub hour: Option<u8>,
@@ -17,6 +22,14 @@ pub enum Node {
     LaunchControl, // LNC
 }
 
+#[derive(Debug, PartialEq)]
+pub struct Response {
+    pub source: Node,
+    pub sender: Node,
+    pub timestamp: RqTimestamp,
+    pub id: usize,
+}
+
 /// All commands known to the RQ protocol
 pub enum Command {
     Reset,
@@ -25,7 +38,7 @@ pub enum Command {
     Ignition,
 }
 
-pub enum Ack {
+pub enum CommandAcknowledgement {
     Ack,
     LaunchSecretPartial(u8),
     LaunchSecretFull(u8, u8),
@@ -42,19 +55,14 @@ impl Command {
         }
     }
 
-    fn ack(&self) -> Ack {
+    fn ack(&self) -> CommandAcknowledgement {
         match self {
-            Command::Reset => Ack::Ack,
-            Command::LaunchSecretPartial(a) => Ack::LaunchSecretPartial(*a),
-            Command::LaunchSecretFull(a, b) => Ack::LaunchSecretFull(*a, *b),
-            Command::Ignition => Ack::Ignition,
+            Command::Reset => CommandAcknowledgement::Ack,
+            Command::LaunchSecretPartial(a) => CommandAcknowledgement::LaunchSecretPartial(*a),
+            Command::LaunchSecretFull(a, b) => CommandAcknowledgement::LaunchSecretFull(*a, *b),
+            Command::Ignition => CommandAcknowledgement::Ignition,
         }
     }
-}
-
-#[derive(Debug)]
-enum Error {
-    BufferLengthError,
 }
 
 struct Transaction {
@@ -226,6 +234,31 @@ mod tests {
         assert_eq!(
             formatter.buffer().unwrap(),
             b"$LNCCMD,SECRET_A,123,RQA,3F*04\r\n".as_slice()
+        );
+    }
+
+    #[test]
+    fn test_launch_secret_full() {
+        let command = Command::LaunchSecretFull(0x3f, 0xab);
+        let sender = Node::LaunchControl;
+        let recipient = Node::RedQueen(b'A');
+        let id = 123;
+        let t = Transaction {
+            sender,
+            recipient,
+            id,
+            command,
+        };
+
+        let mut dest: [u8; 82] = [0; 82];
+        let remaining = t.serialize(&mut dest, 0..82).unwrap();
+        let mut formatter = NMEAFormatter::default();
+        let _result = formatter
+            .format_sentence(&dest[0..remaining.start])
+            .unwrap();
+        assert_eq!(
+            formatter.buffer().unwrap(),
+            b"$LNCCMD,SECRET_AB,123,RQA,3F,AB*69\r\n".as_slice()
         );
     }
 
