@@ -1,4 +1,14 @@
+use crate::rqprotocol::{Acknowledgement, Node, Response, RqTimestamp};
+use nom::{
+    branch::alt,
+    bytes::complete::{tag, take_while_m_n},
+    character::{complete::alphanumeric1, is_alphabetic, is_digit, is_hex_digit},
+    multi::many1_count,
+    sequence::{preceded, separated_pair, tuple},
+    IResult,
+};
 use ringbuffer::RingBuffer;
+use std::time::Duration;
 
 const START_DELIMITER: u8 = b'$';
 const CHECKSUM_DELIMITER: u8 = b'*';
@@ -95,6 +105,11 @@ fn unhex<'a>(c: u8) -> Result<u8, NMEAFormatError<'a>> {
     }
 }
 
+fn unhex_two_bytes(b: &[u8]) -> Result<u8, NMEAFormatError> {
+    let (upper, lower) = (b[0], b[1]);
+    Ok(unhex(upper)? << 4 | unhex(lower)?)
+}
+
 fn verify_nmea_checksum<'a>(
     message: &'a [u8],
     upper: u8,
@@ -188,20 +203,134 @@ pub fn nibble_to_hex(nibble: u8) -> u8 {
     }
 }
 
+fn timestamp_unit(s: &[u8]) -> IResult<&[u8], u8> {
+    let (rest, out) = take_while_m_n(2, 2, is_digit)(s)?;
+    Ok((rest, (out[0] - 48) * 10 + out[1] - 48))
+}
+
+fn timestamp_prefix(s: &[u8]) -> IResult<&[u8], (Option<u8>, Option<u8>, u8)> {
+    let (rest, count) = many1_count(timestamp_unit)(s)?;
+    let prefix = &s[0..count * 2];
+    let (mut hour, mut minute) = (None, None);
+    let mut seconds = 0;
+    match count {
+        3 => {
+            let (_, (h, m, s)) = tuple((timestamp_unit, timestamp_unit, timestamp_unit))(prefix)?;
+            (hour, minute) = (Some(h), Some(m));
+            seconds = s;
+        }
+        2 => {
+            let (_, (m, s)) = tuple((timestamp_unit, timestamp_unit))(prefix)?;
+            minute = Some(m);
+            seconds = s;
+        }
+        1 => {
+            let (_, s) = timestamp_unit(prefix)?;
+            seconds = s;
+        }
+        _ => unreachable!(),
+    }
+    Ok((rest, (hour, minute, seconds)))
+}
+
+fn timestamp_suffix(s: &[u8]) -> IResult<&[u8], Duration> {
+    let (rest, out) = take_while_m_n(1, 6, is_digit)(s)?;
+    let mut accu: u64 = 0;
+    for c in out {
+        accu *= 10;
+        accu += (*c - 48) as u64;
+    }
+    // We need to multiply out what we are missing to a
+    // microsecond value
+    for _ in 0..(6 - out.len()) {
+        accu *= 10;
+    }
+    Ok((rest, Duration::from_micros(accu)))
+}
+
+fn timestamp_parser(s: &[u8]) -> IResult<&[u8], RqTimestamp> {
+    let (rest, (prefix, fractional)) =
+        separated_pair(timestamp_prefix, tag(b"."), timestamp_suffix)(s)?;
+    Ok((
+        rest,
+        RqTimestamp {
+            hour: prefix.0,
+            minute: prefix.1,
+            seconds: prefix.2,
+            fractional,
+        },
+    ))
+}
+
+pub fn ack_parser(s: &[u8]) -> IResult<&[u8], Acknowledgement> {
+    let (rest, (source, acknowledgement, _, timestamp, _, sender, _, id)) = tuple((
+        node_parser,
+        alt((tag(b"ACK"), tag(b"NAK"))),
+        tag(b","),
+        timestamp_parser,
+        tag(b","),
+        node_parser,
+        tag(b","),
+        command_id_parser,
+    ))(s)?;
+    let response = Response {
+        source,
+        sender,
+        timestamp,
+        id,
+    };
+    match acknowledgement {
+        b"ACK" => Ok((rest, Acknowledgement::Ack(response))),
+        b"NAK" => Ok((rest, Acknowledgement::Nak(response))),
+        _ => unreachable!(),
+    }
+}
+
+pub fn one_return_value_parser(s: &[u8]) -> IResult<&[u8], u8> {
+    preceded(tag(b","), hex_byte)(s)
+}
+
+pub fn two_return_values_parser(s: &[u8]) -> IResult<&[u8], (u8, u8)> {
+    tuple((one_return_value_parser, one_return_value_parser))(s)
+}
+
+fn hex_byte(s: &[u8]) -> IResult<&[u8], u8> {
+    let (rest, out) = take_while_m_n(2, 2, is_hex_digit)(s)?;
+    Ok((rest, unhex(out[0]).unwrap() << 4 | unhex(out[1]).unwrap()))
+}
+
+fn avionics_parser(s: &[u8]) -> IResult<&[u8], Node> {
+    let (rest, (praefix, identifier)) = tuple((
+        alt((tag(b"RQ"), tag(b"FD"))),
+        take_while_m_n(1, 1, is_alphabetic),
+    ))(s)?;
+    match praefix {
+        b"RQ" => Ok((rest, Node::RedQueen(identifier[0]))),
+        b"FD" => Ok((rest, Node::Farduino(identifier[0]))),
+        _ => unreachable!(),
+    }
+}
+
+fn lnc_parser(s: &[u8]) -> IResult<&[u8], Node> {
+    let (rest, _) = tag(b"LNC")(s)?;
+    Ok((rest, Node::LaunchControl))
+}
+
+fn node_parser(s: &[u8]) -> IResult<&[u8], Node> {
+    alt((lnc_parser, avionics_parser))(s)
+}
+
+fn command_id_parser(s: &[u8]) -> IResult<&[u8], usize> {
+    let (rest, bytes) = take_while_m_n(3, 3, is_digit)(s)?;
+    let a = (bytes[0] - b'0') as usize;
+    let b = (bytes[1] - b'0') as usize;
+    let c = (bytes[2] - b'0') as usize;
+    Ok((rest, (a * 100 + b * 10 + c)))
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{assert_matches::assert_matches, time::Duration};
-
-    use nom::{
-        branch::alt,
-        bytes::complete::{tag, take_while_m_n},
-        character::{complete::alphanumeric1, is_alphabetic, is_digit, is_hex_digit},
-        multi::many1_count,
-        sequence::{preceded, separated_pair, tuple},
-        IResult,
-    };
-
-    use crate::rqprotocol::{Node, Response, RqTimestamp};
+    use std::assert_matches::assert_matches;
 
     use super::*;
 
@@ -293,71 +422,6 @@ mod tests {
         );
     }
 
-    fn hex_byte(s: &[u8]) -> IResult<&[u8], u8> {
-        let (rest, out) = take_while_m_n(2, 2, is_hex_digit)(s)?;
-        Ok((rest, unhex(out[0]).unwrap() << 4 | unhex(out[1]).unwrap()))
-    }
-
-    fn timestamp_unit(s: &[u8]) -> IResult<&[u8], u8> {
-        let (rest, out) = take_while_m_n(2, 2, is_digit)(s)?;
-        Ok((rest, (out[0] - 48) * 10 + out[1] - 48))
-    }
-
-    fn timestamp_prefix(s: &[u8]) -> IResult<&[u8], (Option<u8>, Option<u8>, u8)> {
-        let (rest, count) = many1_count(timestamp_unit)(s)?;
-        let prefix = &s[0..count * 2];
-        let (mut hour, mut minute) = (None, None);
-        let mut seconds = 0;
-        match count {
-            3 => {
-                let (_, (h, m, s)) =
-                    tuple((timestamp_unit, timestamp_unit, timestamp_unit))(prefix)?;
-                (hour, minute) = (Some(h), Some(m));
-                seconds = s;
-            }
-            2 => {
-                let (_, (m, s)) = tuple((timestamp_unit, timestamp_unit))(prefix)?;
-                minute = Some(m);
-                seconds = s;
-            }
-            1 => {
-                let (_, s) = timestamp_unit(prefix)?;
-                seconds = s;
-            }
-            _ => unreachable!(),
-        }
-        Ok((rest, (hour, minute, seconds)))
-    }
-
-    fn timestamp_suffix(s: &[u8]) -> IResult<&[u8], Duration> {
-        let (rest, out) = take_while_m_n(1, 6, is_digit)(s)?;
-        let mut accu: u64 = 0;
-        for c in out {
-            accu *= 10;
-            accu += (*c - 48) as u64;
-        }
-        // We need to multiply out what we are missing to a
-        // microsecond value
-        for _ in 0..(6 - out.len()) {
-            accu *= 10;
-        }
-        Ok((rest, Duration::from_micros(accu)))
-    }
-
-    fn timestamp_parser(s: &[u8]) -> IResult<&[u8], RqTimestamp> {
-        let (rest, (prefix, fractional)) =
-            separated_pair(timestamp_prefix, tag(b"."), timestamp_suffix)(s)?;
-        Ok((
-            rest,
-            RqTimestamp {
-                hour: prefix.0,
-                minute: prefix.1,
-                seconds: prefix.2,
-                fractional,
-            },
-        ))
-    }
-
     #[test]
     fn test_timestamp_parsing() {
         assert_eq!(timestamp_unit(b"123456"), Ok((&b"3456"[..], 12)));
@@ -412,27 +476,6 @@ mod tests {
         );
     }
 
-    fn avionics_parser(s: &[u8]) -> IResult<&[u8], Node> {
-        let (rest, (praefix, identifier)) = tuple((
-            alt((tag(b"RQ"), tag(b"FD"))),
-            take_while_m_n(1, 1, is_alphabetic),
-        ))(s)?;
-        match praefix {
-            b"RQ" => Ok((rest, Node::RedQueen(identifier[0]))),
-            b"FD" => Ok((rest, Node::Farduino(identifier[0]))),
-            _ => unreachable!(),
-        }
-    }
-
-    fn lnc_parser(s: &[u8]) -> IResult<&[u8], Node> {
-        let (rest, _) = tag(b"LNC")(s)?;
-        Ok((rest, Node::LaunchControl))
-    }
-
-    fn node_parser(s: &[u8]) -> IResult<&[u8], Node> {
-        alt((lnc_parser, avionics_parser))(s)
-    }
-
     #[test]
     fn test_node_parsing() {
         assert_eq!(
@@ -457,83 +500,33 @@ mod tests {
         );
     }
 
-    fn command_id_parser(s: &[u8]) -> IResult<&[u8], usize> {
-        let (rest, bytes) = take_while_m_n(3, 3, is_digit)(s)?;
-        let a = (bytes[0] - b'0') as usize;
-        let b = (bytes[1] - b'0') as usize;
-        let c = (bytes[2] - b'0') as usize;
-        Ok((rest, (a * 100 + b * 10 + c)))
-    }
-
     #[test]
     fn test_command_id_parser() {
         assert_matches!(command_id_parser(b"123"), Ok((_, 123)));
     }
 
-    fn ack_parser(s: &[u8]) -> IResult<&[u8], Result<Response, Response>> {
-        let (rest, (source, acknowledgement, _, timestamp, _, sender, _, id)) = tuple((
-            node_parser,
-            alt((tag(b"ACK"), tag(b"NAK"))),
-            tag(b","),
-            timestamp_parser,
-            tag(b","),
-            node_parser,
-            tag(b","),
-            command_id_parser,
-        ))(s)?;
-        let response = Response {
-            source,
-            sender,
-            timestamp,
-            id,
-        };
-        match acknowledgement {
-            b"ACK" => Ok((rest, Ok(response))),
-            b"NAK" => Ok((rest, Err(response))),
-            _ => unreachable!(),
-        }
-    }
-
-    fn ack_one_return_value_parser(
-        s: &[u8],
-    ) -> IResult<&[u8], Result<(Response, &[u8]), Response>> {
-        let (rest, response) = ack_parser(s)?;
-        match response {
-            Ok(response) => {
-                let (rest, param) = preceded(tag(b","), alphanumeric1)(rest)?;
-                Ok((rest, Ok((response, param))))
-            }
-            Err(response) => Ok((rest, Err(response))),
-        }
-    }
-
-    fn ack_two_return_value_parser(
-        s: &[u8],
-    ) -> IResult<&[u8], Result<(Response, &[u8], &[u8]), Response>> {
-        let (rest, response) = ack_parser(s)?;
-        match response {
-            Ok(response) => {
-                let (rest, (param1, param2)) = tuple((
-                    preceded(tag(b","), alphanumeric1),
-                    preceded(tag(b","), alphanumeric1),
-                ))(rest)?;
-                Ok((rest, Ok((response, param1, param2))))
-            }
-            Err(response) => Ok((rest, Err(response))),
-        }
-    }
-
     #[test]
     fn test_ack_parsing() {
         let inner_sentence = b"RQEACK,123456.012,LNC,123";
-        assert_matches!(ack_parser(inner_sentence), Ok((_, _)));
         assert_matches!(
-            ack_one_return_value_parser(b"RQEACK,123456.012,LNC,123,foobar"),
-            Ok((b"", Ok((_, b"foobar"))))
+            ack_parser(inner_sentence),
+            Ok((
+                _,
+                Acknowledgement::Ack(Response {
+                    sender: Node::LaunchControl,
+                    source: Node::RedQueen(b'E'),
+                    id: 123,
+                    ..
+                })
+            ))
         );
-        assert_matches!(
-            ack_two_return_value_parser(b"RQEACK,123456.012,LNC,123,foo,bar"),
-            Ok((b"", Ok((_, b"foo", b"bar"))))
-        );
+        let inner_sentence = b"RQENAK,123456.012,LNC,123";
+        assert_matches!(ack_parser(inner_sentence), Ok((_, Acknowledgement::Nak(_))));
+    }
+
+    #[test]
+    fn test_return_argument_parsing() {
+        assert_matches!(one_return_value_parser(b",3F"), Ok((b"", 0x3f)));
+        assert_matches!(two_return_values_parser(b",AB,CD"), Ok((b"", (0xab, 0xcd))));
     }
 }

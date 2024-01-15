@@ -1,10 +1,27 @@
 use std::{ops::Range, time::Duration};
 
-use crate::rqparser::nibble_to_hex;
+use crate::rqparser::{
+    ack_parser, nibble_to_hex, one_return_value_parser, two_return_values_parser,
+    verify_nmea_format, NMEAFormatError,
+};
 
-#[derive(Debug)]
-enum Error {
+#[derive(Debug, PartialEq)]
+pub enum FormatErrorDetail {
+    FormatError,
+    NoChecksumError,
+    ChecksumError,
+    SentenceTooLongError,
+    NoSentenceAvailable,
+    TrailingCharacters,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
     BufferLengthError,
+    FormatError(FormatErrorDetail),
+    ParseError,
+    Nak,
+    InvalidAssociation,
 }
 
 #[derive(Debug, PartialEq)]
@@ -30,6 +47,12 @@ pub struct Response {
     pub id: usize,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum Acknowledgement {
+    Ack(Response),
+    Nak(Response),
+}
+
 /// All commands known to the RQ protocol
 pub enum Command {
     Reset,
@@ -42,7 +65,6 @@ pub enum CommandAcknowledgement {
     Ack,
     LaunchSecretPartial(u8),
     LaunchSecretFull(u8, u8),
-    Ignition,
 }
 
 impl Command {
@@ -60,7 +82,7 @@ impl Command {
             Command::Reset => CommandAcknowledgement::Ack,
             Command::LaunchSecretPartial(a) => CommandAcknowledgement::LaunchSecretPartial(*a),
             Command::LaunchSecretFull(a, b) => CommandAcknowledgement::LaunchSecretFull(*a, *b),
-            Command::Ignition => CommandAcknowledgement::Ignition,
+            Command::Ignition => CommandAcknowledgement::Ack,
         }
     }
 }
@@ -78,6 +100,33 @@ trait Serialize {
         buffer: &'a mut [u8],
         range: Range<usize>,
     ) -> Result<Range<usize>, Error>;
+}
+
+// Just translate the errors, we don't care about the
+// NMEA sentence without checksum, as we are not using
+// that.
+impl From<NMEAFormatError<'_>> for Error {
+    fn from(value: NMEAFormatError) -> Self {
+        match value {
+            NMEAFormatError::FormatError => Error::FormatError(FormatErrorDetail::FormatError),
+            NMEAFormatError::NoChecksumError(_) => {
+                Error::FormatError(FormatErrorDetail::NoChecksumError)
+            }
+            NMEAFormatError::ChecksumError => Error::FormatError(FormatErrorDetail::ChecksumError),
+            NMEAFormatError::SentenceTooLongError => {
+                Error::FormatError(FormatErrorDetail::SentenceTooLongError)
+            }
+            NMEAFormatError::NoSentenceAvailable => {
+                Error::FormatError(FormatErrorDetail::NoSentenceAvailable)
+            }
+        }
+    }
+}
+
+impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
+    fn from(value: nom::Err<nom::error::Error<&[u8]>>) -> Self {
+        Error::ParseError
+    }
 }
 
 fn range_check(inner: &Range<usize>, outer: &Range<usize>) -> Result<(), Error> {
@@ -162,7 +211,7 @@ impl Serialize for Command {
                 let range = u8_parameter(buffer, range, *a)?;
                 u8_parameter(buffer, range, *b)
             }
-            Command::Ignition => Ok(0..10),
+            Command::Ignition => Ok(range),
         }
     }
 }
@@ -205,6 +254,55 @@ impl Serialize for Transaction {
     }
 }
 
+impl Transaction {
+    fn process_response(&self, response: &[u8]) -> Result<(), Error> {
+        let contents = verify_nmea_format(response)?;
+        let (rest, response) = ack_parser(contents)?;
+        match response {
+            Acknowledgement::Ack(Response {
+                source, sender, id, ..
+            }) => {
+                if id == self.id && sender == self.sender && source == self.recipient {
+                    let trailing = self.command.ack().process_response(rest)?;
+                    if trailing.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(Error::FormatError(FormatErrorDetail::TrailingCharacters))
+                    }
+                } else {
+                    Err(Error::InvalidAssociation)
+                }
+            }
+            Acknowledgement::Nak(_) => Err(Error::Nak),
+        }
+    }
+}
+
+impl CommandAcknowledgement {
+    fn process_response<'a>(&self, params: &'a [u8]) -> Result<&'a [u8], Error> {
+        match self {
+            CommandAcknowledgement::LaunchSecretPartial(a) => {
+                let (rest, param) = one_return_value_parser(params)?;
+                if param == *a {
+                    Ok(rest)
+                } else {
+                    Err(Error::ParseError)
+                }
+            }
+            CommandAcknowledgement::LaunchSecretFull(a, b) => {
+                let (rest, (param1, param2)) = two_return_values_parser(params)?;
+                if param1 == *a && param2 == *b {
+                    Ok(rest)
+                } else {
+                    Err(Error::ParseError)
+                }
+            }
+            CommandAcknowledgement::Ack => Ok(params),
+            _ => Err(Error::ParseError),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::rqparser::NMEAFormatter;
@@ -235,6 +333,10 @@ mod tests {
             formatter.buffer().unwrap(),
             b"$LNCCMD,SECRET_A,123,RQA,3F*04\r\n".as_slice()
         );
+        assert_matches!(
+            t.process_response(b"$RQAACK,123456.001,LNC,123,3F*17\r\n"),
+            Ok(_),
+        );
     }
 
     #[test]
@@ -259,6 +361,72 @@ mod tests {
         assert_eq!(
             formatter.buffer().unwrap(),
             b"$LNCCMD,SECRET_AB,123,RQA,3F,AB*69\r\n".as_slice()
+        );
+        assert_matches!(
+            t.process_response(b"$RQAACK,123456.001,LNC,123,3F,AB*38\r\n"),
+            Ok(_),
+        );
+        assert_matches!(
+            t.process_response(b"$RQAACK,123456.001,LNC,123,3F,ABfoo*5E\r\n"),
+            Err(Error::FormatError(FormatErrorDetail::TrailingCharacters)),
+        );
+    }
+
+    #[test]
+    fn test_reset() {
+        let command = Command::Reset;
+        let sender = Node::LaunchControl;
+        let recipient = Node::RedQueen(b'A');
+        let id = 123;
+        let t = Transaction {
+            sender,
+            recipient,
+            id,
+            command,
+        };
+
+        let mut dest: [u8; 82] = [0; 82];
+        let remaining = t.serialize(&mut dest, 0..82).unwrap();
+        let mut formatter = NMEAFormatter::default();
+        let _result = formatter
+            .format_sentence(&dest[0..remaining.start])
+            .unwrap();
+        assert_eq!(
+            formatter.buffer().unwrap(),
+            b"$LNCCMD,RESET,123,RQA*00\r\n".as_slice()
+        );
+        assert_matches!(
+            t.process_response(b"$RQAACK,123456.001,LNC,123*4E\r\n"),
+            Ok(_),
+        );
+    }
+
+    #[test]
+    fn test_ignition() {
+        let command = Command::Ignition;
+        let sender = Node::LaunchControl;
+        let recipient = Node::RedQueen(b'A');
+        let id = 123;
+        let t = Transaction {
+            sender,
+            recipient,
+            id,
+            command,
+        };
+
+        let mut dest: [u8; 82] = [0; 82];
+        let remaining = t.serialize(&mut dest, 0..82).unwrap();
+        let mut formatter = NMEAFormatter::default();
+        let _result = formatter
+            .format_sentence(&dest[0..remaining.start])
+            .unwrap();
+        assert_eq!(
+            formatter.buffer().unwrap(),
+            b"$LNCCMD,IGNITION,123,RQA*40\r\n".as_slice()
+        );
+        assert_matches!(
+            t.process_response(b"$RQAACK,123456.001,LNC,123*4E\r\n"),
+            Ok(_),
         );
     }
 
