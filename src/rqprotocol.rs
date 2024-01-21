@@ -32,7 +32,7 @@ pub struct RqTimestamp {
     pub fractional: Duration,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Node {
     RedQueen(u8),  // RQ<X>
     Farduino(u8),  // FD<X>
@@ -40,20 +40,18 @@ pub enum Node {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Response {
+pub struct AckHeader {
+    // The node sending this message
     pub source: Node,
-    pub sender: Node,
+    // The node the original command was issued from
+    // and this ack is the destination for.
+    pub recipient: Node,
     pub timestamp: RqTimestamp,
     pub id: usize,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Acknowledgement {
-    Ack(Response),
-    Nak(Response),
-}
-
 /// All commands known to the RQ protocol
+#[derive(Debug, PartialEq)]
 pub enum Command {
     Reset,
     LaunchSecretPartial(u8),
@@ -61,7 +59,12 @@ pub enum Command {
     Ignition,
 }
 
-pub enum CommandAcknowledgement {
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum Response {
+    Ack,
+}
+
+enum CommandProcessor {
     Ack,
     LaunchSecretPartial(u8),
     LaunchSecretFull(u8, u8),
@@ -77,24 +80,33 @@ impl Command {
         }
     }
 
-    fn ack(&self) -> CommandAcknowledgement {
+    fn processor(&self) -> CommandProcessor {
         match self {
-            Command::Reset => CommandAcknowledgement::Ack,
-            Command::LaunchSecretPartial(a) => CommandAcknowledgement::LaunchSecretPartial(*a),
-            Command::LaunchSecretFull(a, b) => CommandAcknowledgement::LaunchSecretFull(*a, *b),
-            Command::Ignition => CommandAcknowledgement::Ack,
+            Command::Reset => CommandProcessor::Ack,
+            Command::LaunchSecretPartial(a) => CommandProcessor::LaunchSecretPartial(*a),
+            Command::LaunchSecretFull(a, b) => CommandProcessor::LaunchSecretFull(*a, *b),
+            Command::Ignition => CommandProcessor::Ack,
         }
     }
 }
 
-struct Transaction {
-    sender: Node,
+#[derive(Debug, PartialEq)]
+pub enum Acknowledgement {
+    Ack(AckHeader),
+    Nak(AckHeader),
+}
+
+#[derive(Debug)]
+pub struct Transaction {
+    // Us, that we send the message
+    source: Node,
+    // The destination of the message
     recipient: Node,
     id: usize,
     command: Command,
 }
 
-trait Serialize {
+pub trait Serialize {
     fn serialize<'a>(
         &self,
         buffer: &'a mut [u8],
@@ -243,7 +255,7 @@ impl Serialize for Transaction {
         buffer: &'a mut [u8],
         range: Range<usize>,
     ) -> Result<Range<usize>, Error> {
-        let range = self.sender.serialize(buffer, range)?;
+        let range = self.source.serialize(buffer, range)?;
         let range = append_bytes(buffer, range, b"CMD,")?;
         let range = append_bytes(buffer, range, self.command.verb())?;
         let range = append_bytes(buffer, range, b",")?;
@@ -255,17 +267,30 @@ impl Serialize for Transaction {
 }
 
 impl Transaction {
-    fn process_response(&self, response: &[u8]) -> Result<(), Error> {
-        let contents = verify_nmea_format(response)?;
+    pub fn new(sender: Node, recipient: Node, id: usize, command: Command) -> Self {
+        Self {
+            source: sender,
+            recipient,
+            id,
+            command,
+        }
+    }
+
+    pub fn process_response(&self, sentence: &[u8]) -> Result<Response, Error> {
+        let contents = verify_nmea_format(sentence)?;
         let (rest, response) = ack_parser(contents)?;
         match response {
-            Acknowledgement::Ack(Response {
-                source, sender, id, ..
+            Acknowledgement::Ack(AckHeader {
+                source,
+                recipient,
+                id,
+                ..
             }) => {
-                if id == self.id && sender == self.sender && source == self.recipient {
-                    let trailing = self.command.ack().process_response(rest)?;
+                // source and recipient are crossed over
+                if id == self.id && source == self.recipient && recipient == self.source {
+                    let (trailing, response) = self.command.processor().process_response(rest)?;
                     if trailing.is_empty() {
-                        Ok(())
+                        Ok(response)
                     } else {
                         Err(Error::FormatError(FormatErrorDetail::TrailingCharacters))
                     }
@@ -278,26 +303,26 @@ impl Transaction {
     }
 }
 
-impl CommandAcknowledgement {
-    fn process_response<'a>(&self, params: &'a [u8]) -> Result<&'a [u8], Error> {
+impl CommandProcessor {
+    fn process_response<'a>(&self, params: &'a [u8]) -> Result<(&'a [u8], Response), Error> {
         match self {
-            CommandAcknowledgement::LaunchSecretPartial(a) => {
+            CommandProcessor::LaunchSecretPartial(a) => {
                 let (rest, param) = one_return_value_parser(params)?;
                 if param == *a {
-                    Ok(rest)
+                    Ok((rest, Response::Ack))
                 } else {
                     Err(Error::ParseError)
                 }
             }
-            CommandAcknowledgement::LaunchSecretFull(a, b) => {
+            CommandProcessor::LaunchSecretFull(a, b) => {
                 let (rest, (param1, param2)) = two_return_values_parser(params)?;
                 if param1 == *a && param2 == *b {
-                    Ok(rest)
+                    Ok((rest, Response::Ack))
                 } else {
                     Err(Error::ParseError)
                 }
             }
-            CommandAcknowledgement::Ack => Ok(params),
+            CommandProcessor::Ack => Ok((params, Response::Ack)),
             _ => Err(Error::ParseError),
         }
     }
@@ -317,7 +342,7 @@ mod tests {
         let recipient = Node::RedQueen(b'A');
         let id = 123;
         let t = Transaction {
-            sender,
+            source: sender,
             recipient,
             id,
             command,
@@ -346,7 +371,7 @@ mod tests {
         let recipient = Node::RedQueen(b'A');
         let id = 123;
         let t = Transaction {
-            sender,
+            source: sender,
             recipient,
             id,
             command,
@@ -379,7 +404,7 @@ mod tests {
         let recipient = Node::RedQueen(b'A');
         let id = 123;
         let t = Transaction {
-            sender,
+            source: sender,
             recipient,
             id,
             command,
@@ -408,7 +433,7 @@ mod tests {
         let recipient = Node::RedQueen(b'A');
         let id = 123;
         let t = Transaction {
-            sender,
+            source: sender,
             recipient,
             id,
             command,

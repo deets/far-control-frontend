@@ -1,4 +1,4 @@
-use crate::rqprotocol::{Acknowledgement, Node, Response, RqTimestamp};
+use crate::rqprotocol::{AckHeader, Acknowledgement, Node, RqTimestamp};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while_m_n},
@@ -21,13 +21,15 @@ pub enum Error {
     OutputBufferOverflow,
 }
 
+#[derive(Debug)]
 enum State {
     WaitForStart,
     WaitForCR,
     WaitForLF,
 }
 
-struct SentenceParser<'a, RB> {
+#[derive(Debug)]
+pub struct SentenceParser<'a, RB> {
     state: State,
     ring_buffer: &'a mut RB,
     output_buffer: [u8; MAX_BUFFER_SIZE],
@@ -67,7 +69,10 @@ where
                         self.ring_buffer.push(c);
                         self.state = State::WaitForStart;
                         let size = self.ring_buffer.len();
+                        // The contained sentence is beyond our
+                        // buffer size. We must discard.
                         if size > self.output_buffer.len() {
+                            self.ring_buffer.clear();
                             return Err(Error::OutputBufferOverflow);
                         }
                         for (index, char) in self.ring_buffer.drain().enumerate() {
@@ -263,7 +268,7 @@ fn timestamp_parser(s: &[u8]) -> IResult<&[u8], RqTimestamp> {
 }
 
 pub fn ack_parser(s: &[u8]) -> IResult<&[u8], Acknowledgement> {
-    let (rest, (source, acknowledgement, _, timestamp, _, sender, _, id)) = tuple((
+    let (rest, (source, acknowledgement, _, timestamp, _, recipient, _, id)) = tuple((
         node_parser,
         alt((tag(b"ACK"), tag(b"NAK"))),
         tag(b","),
@@ -273,9 +278,9 @@ pub fn ack_parser(s: &[u8]) -> IResult<&[u8], Acknowledgement> {
         tag(b","),
         command_id_parser,
     ))(s)?;
-    let response = Response {
+    let response = AckHeader {
         source,
-        sender,
+        recipient,
         timestamp,
         id,
     };
@@ -358,6 +363,26 @@ mod tests {
         assert_eq!(
             Err(Error::OutputBufferOverflow),
             parser.feed(sentence, |_| {})
+        );
+    }
+
+    #[test]
+    fn test_output_buffer_overvflow_recovers() {
+        let sentence = b"$RQSTATE,01234567890123456789012345678901234567890123456789012345678901234567890123456789013940.4184,DROGUE_OPEN*39\r\n";
+        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
+        let mut parser = SentenceParser::new(&mut ringbuffer);
+
+        assert_eq!(
+            Err(Error::OutputBufferOverflow),
+            parser.feed(sentence, |sentence| {
+                assert_eq!(sentence, b"$TEST\r\n");
+            })
+        );
+        assert_matches!(
+            parser.feed(b"$TEST\r\n", |sentence| {
+                assert_eq!(sentence, b"$TEST\r\n");
+            }),
+            Ok(_),
         );
     }
 
@@ -512,8 +537,8 @@ mod tests {
             ack_parser(inner_sentence),
             Ok((
                 _,
-                Acknowledgement::Ack(Response {
-                    sender: Node::LaunchControl,
+                Acknowledgement::Ack(AckHeader {
+                    recipient: Node::LaunchControl,
                     source: Node::RedQueen(b'E'),
                     id: 123,
                     ..
