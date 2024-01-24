@@ -95,6 +95,11 @@ pub enum Acknowledgement {
     Ack(AckHeader),
     Nak(AckHeader),
 }
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum TransactionState {
+    Alive,
+    Dead,
+}
 
 #[derive(Debug)]
 pub struct Transaction {
@@ -104,6 +109,7 @@ pub struct Transaction {
     recipient: Node,
     id: usize,
     command: Command,
+    state: TransactionState,
 }
 
 pub trait Serialize {
@@ -273,10 +279,18 @@ impl Transaction {
             recipient,
             id,
             command,
+            state: TransactionState::Alive,
         }
     }
 
-    pub fn process_response(&self, sentence: &[u8]) -> Result<Response, Error> {
+    pub fn state(&self) -> TransactionState {
+        self.state.clone()
+    }
+
+    pub fn process_response(&mut self, sentence: &[u8]) -> Result<Response, Error> {
+        // Currently, all commands lead to the Transaction
+        // being dead, so let's just hard-code this here
+        self.state = TransactionState::Dead;
         let contents = verify_nmea_format(sentence)?;
         let (rest, response) = ack_parser(contents)?;
         match response {
@@ -341,12 +355,7 @@ mod tests {
         let sender = Node::LaunchControl;
         let recipient = Node::RedQueen(b'A');
         let id = 123;
-        let t = Transaction {
-            source: sender,
-            recipient,
-            id,
-            command,
-        };
+        let mut t = Transaction::new(sender, recipient, id, command);
 
         let mut dest: [u8; 82] = [0; 82];
         let remaining = t.serialize(&mut dest, 0..82).unwrap();
@@ -370,12 +379,7 @@ mod tests {
         let sender = Node::LaunchControl;
         let recipient = Node::RedQueen(b'A');
         let id = 123;
-        let t = Transaction {
-            source: sender,
-            recipient,
-            id,
-            command,
-        };
+        let mut t = Transaction::new(sender, recipient, id, command);
 
         let mut dest: [u8; 82] = [0; 82];
         let remaining = t.serialize(&mut dest, 0..82).unwrap();
@@ -403,13 +407,8 @@ mod tests {
         let sender = Node::LaunchControl;
         let recipient = Node::RedQueen(b'A');
         let id = 123;
-        let t = Transaction {
-            source: sender,
-            recipient,
-            id,
-            command,
-        };
-
+        let mut t = Transaction::new(sender, recipient, id, command);
+        assert_eq!(t.state(), TransactionState::Alive);
         let mut dest: [u8; 82] = [0; 82];
         let remaining = t.serialize(&mut dest, 0..82).unwrap();
         let mut formatter = NMEAFormatter::default();
@@ -424,6 +423,7 @@ mod tests {
             t.process_response(b"$RQAACK,123456.001,LNC,123*4E\r\n"),
             Ok(_),
         );
+        assert_eq!(t.state(), TransactionState::Dead);
     }
 
     #[test]
@@ -432,12 +432,7 @@ mod tests {
         let sender = Node::LaunchControl;
         let recipient = Node::RedQueen(b'A');
         let id = 123;
-        let t = Transaction {
-            source: sender,
-            recipient,
-            id,
-            command,
-        };
+        let mut t = Transaction::new(sender, recipient, id, command);
 
         let mut dest: [u8; 82] = [0; 82];
         let remaining = t.serialize(&mut dest, 0..82).unwrap();
@@ -453,6 +448,7 @@ mod tests {
             t.process_response(b"$RQAACK,123456.001,LNC,123*4E\r\n"),
             Ok(_),
         );
+        assert_eq!(t.state(), TransactionState::Dead);
     }
 
     #[test]

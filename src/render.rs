@@ -1,11 +1,10 @@
-use egui::{Color32, FontFamily, FontTweak, RichText, Stroke, Ui, Rect, Vec2};
+use egui::{Color32, Rect, Stroke, Ui, Vec2};
 
+use crate::layout;
 use crate::layout::colors::muted;
-use crate::state::{State, ActiveTab, ControlArea};
-use crate::layout as layout;
+use crate::state::{ActiveTab, ControlArea, State};
 
-fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect)
-{
+fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
     let lt = rect.left_top();
     let h = rect.height();
     let left_width = rect.width() * split;
@@ -17,13 +16,24 @@ fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect)
 }
 
 fn render_header(ui: &mut Ui, state: &State) {
-    let desired_size = [ui.available_width(), ui.available_height() * layout::header::MARGIN];
+    let desired_size = [
+        ui.available_width(),
+        ui.available_height() * layout::header::MARGIN,
+    ];
     let (_id, rect) = ui.allocate_space(desired_size.into());
-    ui.painter().rect(rect, 0.0, Color32::RED, Stroke::NONE);    
+    ui.painter().rect(rect, 0.0, Color32::RED, Stroke::NONE);
     let (lr, rr) = split_rect_horizontally_at(&rect, 0.5);
     let (active, background, active_rect) = match state.active {
-        ActiveTab::Observables => (layout::colors::OBSERVABLES, muted(layout::colors::LAUNCHCONTROL), lr),
-        ActiveTab::LaunchControl => (layout::colors::LAUNCHCONTROL, muted(layout::colors::OBSERVABLES), rr),
+        ActiveTab::Observables => (
+            layout::colors::OBSERVABLES,
+            muted(layout::colors::LAUNCHCONTROL),
+            lr,
+        ),
+        ActiveTab::LaunchControl => (
+            layout::colors::LAUNCHCONTROL,
+            muted(layout::colors::OBSERVABLES),
+            rr,
+        ),
     };
     let active = match state.control {
         ControlArea::Details => muted(active),
@@ -42,7 +52,7 @@ fn render_body(ui: &mut Ui, state: &State) {
     };
     let color = match state.control {
         ControlArea::Tabs => muted(color),
-        ControlArea::Details => color
+        ControlArea::Details => color,
     };
     ui.painter().rect(rect, 0.0, color, Stroke::NONE);
 }

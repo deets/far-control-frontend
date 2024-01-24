@@ -1,5 +1,5 @@
 #[derive(Debug, Copy, Clone)]
-pub enum Event {
+pub enum InputEvent {
     Enter,
     Back,
     Left(u32),

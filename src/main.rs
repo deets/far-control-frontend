@@ -1,12 +1,13 @@
 #![feature(assert_matches, slice_pattern, exclusive_range_pattern)]
+mod consort;
+mod input;
+mod layout;
 mod render;
 mod rqparser;
 mod rqprotocol;
 mod state;
 mod timestep;
 mod visualisation;
-mod layout;
-mod input;
 
 use std::{sync::Arc, time::Instant};
 
@@ -18,7 +19,6 @@ use sdl2::event::{Event, WindowEvent};
 use state::State;
 use timestep::TimeStep;
 use visualisation::setup_custom_fonts;
-
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 480;
@@ -115,18 +115,25 @@ async fn run() -> anyhow::Result<()> {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     ..
                 } => break 'main,
-                Event::KeyDown {
-                    keycode,
-                    ..
-                } => {
+                Event::KeyDown { keycode, .. } => {
                     if let Some(keycode) = keycode {
-                    println!("match keycode");
+                        println!("match keycode");
                         match keycode {
-                            sdl2::keyboard::Keycode::Space => { input_events.push(input::Event::Enter); }
-                            sdl2::keyboard::Keycode::Return => { input_events.push(input::Event::Enter); }
-                            sdl2::keyboard::Keycode::Backspace => { input_events.push(input::Event::Back); }
-                            sdl2::keyboard::Keycode::Left => { input_events.push(input::Event::Left(10)); }
-                            sdl2::keyboard::Keycode::Right => { input_events.push(input::Event::Right(10)); }
+                            sdl2::keyboard::Keycode::Space => {
+                                input_events.push(input::InputEvent::Enter);
+                            }
+                            sdl2::keyboard::Keycode::Return => {
+                                input_events.push(input::InputEvent::Enter);
+                            }
+                            sdl2::keyboard::Keycode::Backspace => {
+                                input_events.push(input::InputEvent::Back);
+                            }
+                            sdl2::keyboard::Keycode::Left => {
+                                input_events.push(input::InputEvent::Left(10));
+                            }
+                            sdl2::keyboard::Keycode::Right => {
+                                input_events.push(input::InputEvent::Right(10));
+                            }
                             _ => {}
                         }
                     }
@@ -136,7 +143,7 @@ async fn run() -> anyhow::Result<()> {
             // Let the egui platform handle the event
             platform.handle_event(&event, &sdl, &video);
         }
-        state.process_events(&input_events);
+        state.process_input_events(&input_events);
         if let Some(_fps) = timestep.frame_rate() {
             println!("{:?}", _fps);
         }

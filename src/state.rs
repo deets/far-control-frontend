@@ -1,4 +1,4 @@
-use crate::input::Event;
+use crate::input::InputEvent;
 
 pub enum ActiveTab {
     Observables,
@@ -36,58 +36,49 @@ impl Default for State {
     }
 }
 
-
 impl State {
-    pub fn process_events(&mut self, events: &Vec<Event>)
-    {
+    pub fn process_input_events(&mut self, events: &Vec<InputEvent>) {
         for event in events {
-            self.process_event(event);
+            self.process_input_event(event);
         }
     }
 
-    fn process_event(&mut self, event: &Event)
-    {
-        println!("process event: {:?}", event);
+    fn process_input_event(&mut self, event: &InputEvent) {
+        println!("process input event: {:?}", event);
         match self.control {
             ControlArea::Tabs => self.process_tabs_event(event),
             ControlArea::Details => self.process_details_event(event),
         }
     }
 
-    fn process_tabs_event(&mut self, event: &Event)
-    {
+    fn process_tabs_event(&mut self, event: &InputEvent) {
         match event {
-            Event::Left(..) => self.toggle_tab(),
-            Event::Right(..) => self.toggle_tab(),
-            Event::Enter => self.enter(),
-            _ => {}
-        }
-    }
-    
-    fn process_details_event(&mut self, event: &Event)
-    {
-        match event {
-            Event::Back => self.exit(),
+            InputEvent::Left(..) => self.toggle_tab(),
+            InputEvent::Right(..) => self.toggle_tab(),
+            InputEvent::Enter => self.enter(),
             _ => {}
         }
     }
 
-    fn toggle_tab(&mut self)
-    {
+    fn process_details_event(&mut self, event: &InputEvent) {
+        match event {
+            InputEvent::Back => self.exit(),
+            _ => {}
+        }
+    }
+
+    fn toggle_tab(&mut self) {
         self.active = match self.active {
             ActiveTab::LaunchControl => ActiveTab::Observables,
             ActiveTab::Observables => ActiveTab::LaunchControl,
         }
     }
-    
-    fn enter(&mut self)
-    {
+
+    fn enter(&mut self) {
         self.control = ControlArea::Details;
     }
 
-    fn exit(&mut self)
-    {
+    fn exit(&mut self) {
         self.control = ControlArea::Tabs;
     }
-    
 }

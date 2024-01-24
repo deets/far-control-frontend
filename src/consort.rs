@@ -10,7 +10,7 @@ use ringbuffer::AllocRingBuffer;
 
 use crate::{
     rqparser::{NMEAFormatError, NMEAFormatter, SentenceParser},
-    rqprotocol::{Command, Node, Response, Serialize, Transaction},
+    rqprotocol::{Command, Node, Response, Serialize, Transaction, TransactionState},
 };
 
 use crate::rqparser::Error as ParserError;
@@ -115,11 +115,15 @@ impl<'a> Consort<'a> {
                 break;
             }
         }
-        match &self.transaction {
-            Some(transaction) => Ok(Some(
-                transaction
-                    .process_response(extracted_sentence.expect("Can't be None").as_slice())?,
-            )),
+        match &mut self.transaction {
+            Some(transaction) => {
+                let result = Ok(Some(transaction.process_response(
+                    extracted_sentence.expect("Can't be None").as_slice(),
+                )?));
+                assert!(transaction.state() == TransactionState::Dead);
+                self.transaction = None;
+                result
+            }
             // We don't expect data
             None => Err(Error::SpuriousSentence),
         }
@@ -220,11 +224,24 @@ mod tests {
             inputbuffer.push(*c);
         }
         assert_matches!(consort.feed(&mut inputbuffer), Ok(Some(_)));
+        assert_matches!(consort.transaction, None);
     }
 
     #[test]
     fn test_sending_spurious_command() {
-        todo!();
+        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
+        let mut consort = Consort::new(
+            Node::LaunchControl,
+            Node::RedQueen(b'A'),
+            &mut ringbuffer,
+            Instant::now(),
+        );
+
+        let mut inputbuffer = ringbuffer::AllocRingBuffer::new(256);
+        for c in b"$RQAACK,123456.001,LNC,001*4F\r\n" {
+            inputbuffer.push(*c);
+        }
+        assert_matches!(consort.feed(&mut inputbuffer), Err(Error::SpuriousSentence));
     }
 
     #[test]
