@@ -1,5 +1,6 @@
 #![feature(assert_matches, slice_pattern, exclusive_range_pattern)]
 mod consort;
+mod ebyte;
 mod input;
 mod layout;
 mod render;
@@ -11,6 +12,7 @@ mod visualisation;
 
 use std::{sync::Arc, time::Instant};
 
+use ebyte::E32Connection;
 use render::render;
 
 use egui_glow::glow::HasContext;
@@ -24,6 +26,8 @@ const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 480;
 
 async fn run() -> anyhow::Result<()> {
+    let _conn =
+        E32Connection::new("/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0");
     // Initialize sdl
     let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;
     // Create the video subsystem
