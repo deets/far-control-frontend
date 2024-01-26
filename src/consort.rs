@@ -1,4 +1,3 @@
-use egui_glow::glow::ActiveTransformFeedback;
 #[cfg(test)]
 use mock_instant::Instant;
 #[cfg(not(test))]
@@ -62,7 +61,12 @@ impl From<ParserError> for Error {
 }
 
 impl<'a> Consort<'a> {
-    fn new(me: Node, dest: Node, ringbuffer: &'a mut AllocRingBuffer<u8>, now: Instant) -> Self {
+    pub fn new(
+        me: Node,
+        dest: Node,
+        ringbuffer: &'a mut AllocRingBuffer<u8>,
+        now: Instant,
+    ) -> Self {
         let sentence_parser = SentenceParser::new(ringbuffer);
         Self {
             me,
@@ -129,7 +133,7 @@ impl<'a> Consort<'a> {
         }
     }
 
-    fn update_time(&mut self, now: Instant) {
+    pub fn update_time(&mut self, now: Instant) {
         self.now = now;
     }
 

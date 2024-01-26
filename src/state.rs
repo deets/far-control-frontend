@@ -1,18 +1,25 @@
-use crate::input::InputEvent;
+use std::time::{Duration, Instant};
 
+use crate::{consort::Consort, input::InputEvent};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActiveTab {
     Observables,
     LaunchControl,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ControlArea {
     Tabs,
     Details,
 }
 
-pub struct State {
+pub struct State<'a> {
     pub active: ActiveTab,
     pub control: ControlArea,
+    pub consort: Consort<'a>,
+    start: Instant,
+    now: Instant,
 }
 
 impl Default for ActiveTab {
@@ -27,16 +34,26 @@ impl Default for ControlArea {
     }
 }
 
-impl Default for State {
-    fn default() -> Self {
+impl<'a> State<'a> {
+    pub fn new(consort: Consort<'a>, now: Instant) -> Self {
         Self {
             active: Default::default(),
             control: Default::default(),
+            consort,
+            start: now,
+            now,
         }
     }
-}
 
-impl State {
+    pub fn elapsed(&self) -> Duration {
+        self.now - self.start
+    }
+
+    pub fn update_time(&mut self, now: Instant) {
+        self.now = now;
+        self.consort.update_time(now);
+    }
+
     pub fn process_input_events(&mut self, events: &Vec<InputEvent>) {
         for event in events {
             self.process_input_event(event);
@@ -44,7 +61,6 @@ impl State {
     }
 
     fn process_input_event(&mut self, event: &InputEvent) {
-        println!("process input event: {:?}", event);
         match self.control {
             ControlArea::Tabs => self.process_tabs_event(event),
             ControlArea::Details => self.process_details_event(event),

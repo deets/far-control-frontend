@@ -12,11 +12,13 @@ mod visualisation;
 
 use std::{sync::Arc, time::Instant};
 
+use consort::Consort;
 use ebyte::E32Connection;
 use render::render;
 
 use egui_glow::glow::HasContext;
 use egui_sdl2_platform::sdl2;
+use rqprotocol::Node;
 use sdl2::event::{Event, WindowEvent};
 use state::State;
 use timestep::TimeStep;
@@ -64,13 +66,22 @@ async fn run() -> anyhow::Result<()> {
     // Get the time before the loop started
     let start_time = Instant::now();
     let mut timestep = TimeStep::new();
-    let mut state = State::default();
+    let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
+    let consort = Consort::new(
+        Node::LaunchControl,
+        Node::RedQueen(b'A'),
+        &mut ringbuffer,
+        start_time,
+    );
+    let mut state = State::new(consort, start_time);
     let ctx = platform.context();
-    setup_custom_fonts(&ctx);
-    // The main loop
+    //setup_custom_fonts(&ctx);
+
     'main: loop {
         // Update the time
         platform.update_time(start_time.elapsed().as_secs_f64());
+        state.update_time(Instant::now());
+
         let ctx = platform.context();
         let mut input_events = vec![];
 
@@ -121,7 +132,6 @@ async fn run() -> anyhow::Result<()> {
                 } => break 'main,
                 Event::KeyDown { keycode, .. } => {
                     if let Some(keycode) = keycode {
-                        println!("match keycode");
                         match keycode {
                             sdl2::keyboard::Keycode::Space => {
                                 input_events.push(input::InputEvent::Enter);
@@ -148,11 +158,7 @@ async fn run() -> anyhow::Result<()> {
             platform.handle_event(&event, &sdl, &video);
         }
         state.process_input_events(&input_events);
-        if let Some(_fps) = timestep.frame_rate() {
-            println!("{:?}", _fps);
-        }
     }
-
     Ok(())
 }
 
