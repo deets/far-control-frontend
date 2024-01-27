@@ -151,6 +151,7 @@ dependencies = [
  "embedded-hal",
  "gl",
  "mock_instant",
+ "nb 1.1.0",
  "nom",
  "pollster",
  "ringbuffer",

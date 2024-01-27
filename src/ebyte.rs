@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-type E32Module = Ebyte<Serial, CtsAux, M0Dtr, M1Rts, StandardDelay, Normal>;
+pub type E32Module = Ebyte<Serial, CtsAux, M0Dtr, M1Rts, StandardDelay, Normal>;
 
 pub struct E32Connection {
     worker: JoinHandle<()>,
@@ -80,6 +80,10 @@ impl E32Connection {
             Err(_) => {}
         }
         self.busy
+    }
+
+    pub fn raw_module(port: &str) -> anyhow::Result<E32Module> {
+        Ok(create(&port, default_parameters())?)
     }
 }
 

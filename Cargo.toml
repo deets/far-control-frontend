@@ -2,6 +2,7 @@
 name = "control-frontend"
 version = "0.1.0"
 edition = "2021"
+default-run = "launch-control"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -20,6 +21,7 @@ serial = "0.4.0"
 serial-core = "0.4.0"
 crossbeam = "0.8.4"
 crossbeam-channel = "0.5.11"
+nb = "1.0.0"
 
 ringbuffer = "0.15.0"
 nom = "7.1.3"

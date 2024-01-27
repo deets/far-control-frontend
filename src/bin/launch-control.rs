@@ -1,28 +1,17 @@
-#![feature(assert_matches, slice_pattern, exclusive_range_pattern)]
-mod consort;
-mod ebyte;
-mod input;
-mod layout;
-mod render;
-mod rqparser;
-mod rqprotocol;
-mod state;
-mod timestep;
-mod visualisation;
-
 use std::{sync::Arc, time::Instant};
 
-use consort::Consort;
-use ebyte::E32Connection;
-use render::render;
+use control_frontend::consort::Consort;
+use control_frontend::ebyte::E32Connection;
+use control_frontend::input::InputEvent;
+use control_frontend::render::render;
+use control_frontend::rqprotocol::Node;
+use control_frontend::state::State;
+use control_frontend::timestep::TimeStep;
 
+use control_frontend::visualisation::setup_custom_fonts;
 use egui_glow::glow::HasContext;
 use egui_sdl2_platform::sdl2;
-use rqprotocol::Node;
 use sdl2::event::{Event, WindowEvent};
-use state::State;
-use timestep::TimeStep;
-use visualisation::setup_custom_fonts;
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 480;
@@ -134,19 +123,19 @@ async fn run() -> anyhow::Result<()> {
                     if let Some(keycode) = keycode {
                         match keycode {
                             sdl2::keyboard::Keycode::Space => {
-                                input_events.push(input::InputEvent::Enter);
+                                input_events.push(InputEvent::Enter);
                             }
                             sdl2::keyboard::Keycode::Return => {
-                                input_events.push(input::InputEvent::Enter);
+                                input_events.push(InputEvent::Enter);
                             }
                             sdl2::keyboard::Keycode::Backspace => {
-                                input_events.push(input::InputEvent::Back);
+                                input_events.push(InputEvent::Back);
                             }
                             sdl2::keyboard::Keycode::Left => {
-                                input_events.push(input::InputEvent::Left(10));
+                                input_events.push(InputEvent::Left(10));
                             }
                             sdl2::keyboard::Keycode::Right => {
-                                input_events.push(input::InputEvent::Right(10));
+                                input_events.push(InputEvent::Right(10));
                             }
                             _ => {}
                         }
