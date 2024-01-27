@@ -1,4 +1,4 @@
-use std::{ops::Range, time::Duration};
+use std::{fmt::Display, ops::Range, time::Duration};
 
 use crate::rqparser::{
     ack_parser, nibble_to_hex, one_return_value_parser, two_return_values_parser,
@@ -57,6 +57,12 @@ pub enum Command {
     LaunchSecretPartial(u8),
     LaunchSecretFull(u8, u8),
     Ignition,
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]

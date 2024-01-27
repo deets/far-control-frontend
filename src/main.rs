@@ -28,8 +28,8 @@ const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 480;
 
 async fn run() -> anyhow::Result<()> {
-    let _conn =
-        E32Connection::new("/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0");
+    let mut conn =
+        E32Connection::new("/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0")?;
     // Initialize sdl
     let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;
     // Create the video subsystem
@@ -80,7 +80,7 @@ async fn run() -> anyhow::Result<()> {
     'main: loop {
         // Update the time
         platform.update_time(start_time.elapsed().as_secs_f64());
-        state.update_time(Instant::now());
+        state.drive(Instant::now(), &mut conn);
 
         let ctx = platform.context();
         let mut input_events = vec![];

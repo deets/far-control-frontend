@@ -99,6 +99,14 @@ impl<'a> Consort<'a> {
         }
     }
 
+    pub fn busy(&self) -> bool {
+        self.transaction.is_some()
+    }
+
+    pub fn reset(&mut self) {
+        self.transaction = None
+    }
+
     pub fn feed(
         &mut self,
         ringbuffer: &'a mut AllocRingBuffer<u8>,

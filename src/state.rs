@@ -1,6 +1,10 @@
-use std::time::{Duration, Instant};
+use anyhow::anyhow;
+use std::{
+    io::Write,
+    time::{Duration, Instant},
+};
 
-use crate::{consort::Consort, input::InputEvent};
+use crate::{consort::Consort, ebyte::E32Connection, input::InputEvent, rqprotocol::Command};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActiveTab {
@@ -49,9 +53,20 @@ impl<'a> State<'a> {
         self.now - self.start
     }
 
-    pub fn update_time(&mut self, now: Instant) {
+    pub fn drive(&mut self, now: Instant, module: &mut E32Connection) -> anyhow::Result<()> {
         self.now = now;
         self.consort.update_time(now);
+        if !module.busy() {
+            match self.consort.send_command(Command::Reset, module) {
+                Ok(_) => {
+                    self.consort.reset();
+                }
+                Err(_) => {
+                    return Err(anyhow!("Command::Reset error"));
+                }
+            };
+        }
+        Ok(())
     }
 
     pub fn process_input_events(&mut self, events: &Vec<InputEvent>) {
