@@ -9,7 +9,7 @@ use ringbuffer::AllocRingBuffer;
 
 use crate::{
     rqparser::{NMEAFormatError, NMEAFormatter, SentenceParser},
-    rqprotocol::{Command, Node, Response, Serialize, Transaction, TransactionState},
+    rqprotocol::{Command, Marshal, Node, Response, Transaction, TransactionState},
 };
 
 use crate::rqparser::Error as ParserError;
@@ -89,10 +89,7 @@ impl<'a> Consort<'a> {
                 let transaction =
                     Transaction::new(self.me.clone(), self.dest.clone(), self.next_id(), command);
                 let mut dest: [u8; 82] = [0; 82];
-                let remaining = transaction.serialize(&mut dest, 0..82)?;
-                let mut formatter = NMEAFormatter::default();
-                formatter.format_sentence(&dest[0..remaining.start])?;
-                writer.write(formatter.buffer()?)?;
+                writer.write(transaction.commandeer(&mut dest)?)?;
                 self.transaction = Some(transaction);
                 Ok(())
             }

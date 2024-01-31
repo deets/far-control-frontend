@@ -2,7 +2,7 @@ use std::{fmt::Display, ops::Range, time::Duration};
 
 use crate::rqparser::{
     ack_parser, nibble_to_hex, one_return_value_parser, two_return_values_parser,
-    verify_nmea_format, NMEAFormatError,
+    verify_nmea_format, NMEAFormatError, NMEAFormatter, MAX_BUFFER_SIZE,
 };
 
 #[derive(Debug, PartialEq)]
@@ -110,16 +110,22 @@ pub enum TransactionState {
 #[derive(Debug)]
 pub struct Transaction {
     // Us, that we send the message
-    source: Node,
+    pub source: Node,
     // The destination of the message
-    recipient: Node,
-    id: usize,
-    command: Command,
+    pub recipient: Node,
+    pub id: usize,
+    pub command: Command,
     state: TransactionState,
 }
 
-pub trait Serialize {
-    fn serialize<'a>(
+pub trait Marshal {
+    fn to_command<'a>(
+        &self,
+        buffer: &'a mut [u8],
+        range: Range<usize>,
+    ) -> Result<Range<usize>, Error>;
+
+    fn to_acknowledgement<'a>(
         &self,
         buffer: &'a mut [u8],
         range: Range<usize>,
@@ -191,8 +197,8 @@ fn range_check_buffer_for_length(
     range_check_for_length(range, &(0..buffer.len()), len)
 }
 
-impl Serialize for Node {
-    fn serialize<'a>(
+impl Marshal for Node {
+    fn to_command<'a>(
         &self,
         buffer: &'a mut [u8],
         range: Range<usize>,
@@ -213,6 +219,14 @@ impl Serialize for Node {
         }
         Ok(range.start + 3..range.end)
     }
+
+    fn to_acknowledgement<'a>(
+        &self,
+        buffer: &'a mut [u8],
+        range: Range<usize>,
+    ) -> Result<Range<usize>, Error> {
+        self.to_command(buffer, range)
+    }
 }
 
 fn u8_parameter(buffer: &mut [u8], range: Range<usize>, param: u8) -> Result<Range<usize>, Error> {
@@ -222,8 +236,8 @@ fn u8_parameter(buffer: &mut [u8], range: Range<usize>, param: u8) -> Result<Ran
     Ok(range.start + 3..range.end)
 }
 
-impl Serialize for Command {
-    fn serialize<'a>(
+impl Marshal for Command {
+    fn to_command<'a>(
         &self,
         buffer: &'a mut [u8],
         range: Range<usize>,
@@ -237,6 +251,14 @@ impl Serialize for Command {
             }
             Command::Ignition => Ok(range),
         }
+    }
+
+    fn to_acknowledgement<'a>(
+        &self,
+        buffer: &'a mut [u8],
+        range: Range<usize>,
+    ) -> Result<Range<usize>, Error> {
+        self.to_command(buffer, range)
     }
 }
 
@@ -261,20 +283,36 @@ fn serialize_count(
     Ok(range.start + 3..range.end)
 }
 
-impl Serialize for Transaction {
-    fn serialize<'a>(
+impl Marshal for Transaction {
+    fn to_command<'a>(
         &self,
         buffer: &'a mut [u8],
         range: Range<usize>,
     ) -> Result<Range<usize>, Error> {
-        let range = self.source.serialize(buffer, range)?;
+        let range = self.source.to_command(buffer, range)?;
         let range = append_bytes(buffer, range, b"CMD,")?;
         let range = append_bytes(buffer, range, self.command.verb())?;
         let range = append_bytes(buffer, range, b",")?;
         let range = serialize_count(buffer, range, self.id)?;
         let range = append_bytes(buffer, range, b",")?;
-        let range = self.recipient.serialize(buffer, range)?;
-        Ok(self.command.serialize(buffer, range)?)
+        let range = self.recipient.to_command(buffer, range)?;
+        Ok(self.command.to_command(buffer, range)?)
+    }
+
+    fn to_acknowledgement<'a>(
+        &self,
+        buffer: &'a mut [u8],
+        range: Range<usize>,
+    ) -> Result<Range<usize>, Error> {
+        // b"$RQAACK,123456.001,LNC,123,3F*17\r\n"
+        let range = self.recipient.to_command(buffer, range)?;
+        let range = append_bytes(buffer, range, b"ACK,")?;
+        let range = append_bytes(buffer, range, b"000000.001,")?;
+        let range = self.source.to_command(buffer, range)?;
+        let range = append_bytes(buffer, range, b",")?;
+        let range = serialize_count(buffer, range, self.id)?;
+        let range = self.command.to_acknowledgement(buffer, range)?;
+        Ok(range)
     }
 }
 
@@ -321,6 +359,26 @@ impl Transaction {
             Acknowledgement::Nak(_) => Err(Error::Nak),
         }
     }
+
+    pub fn commandeer<'a>(&self, dest: &'a mut [u8; MAX_BUFFER_SIZE]) -> Result<&'a [u8], Error> {
+        let response = self.to_command(dest, 0..MAX_BUFFER_SIZE).unwrap();
+        let mut formatter = NMEAFormatter::default();
+        formatter.format_sentence(&dest[0..response.start])?;
+        let res = formatter.buffer()?;
+        let len = res.len();
+        dest[0..len].copy_from_slice(res);
+        Ok(&dest[0..len])
+    }
+
+    pub fn acknowledge<'a>(&self, dest: &'a mut [u8; MAX_BUFFER_SIZE]) -> Result<&'a [u8], Error> {
+        let response = self.to_acknowledgement(dest, 0..MAX_BUFFER_SIZE).unwrap();
+        let mut formatter = NMEAFormatter::default();
+        formatter.format_sentence(&dest[0..response.start])?;
+        let res = formatter.buffer()?;
+        let len = res.len();
+        dest[0..len].copy_from_slice(res);
+        Ok(&dest[0..len])
+    }
 }
 
 impl CommandProcessor {
@@ -350,7 +408,7 @@ impl CommandProcessor {
 
 #[cfg(test)]
 mod tests {
-    use crate::rqparser::NMEAFormatter;
+    use crate::rqparser::{NMEAFormatter, MAX_BUFFER_SIZE};
     use std::assert_matches::assert_matches;
 
     use super::*;
@@ -363,16 +421,9 @@ mod tests {
         let id = 123;
         let mut t = Transaction::new(sender, recipient, id, command);
 
-        let mut dest: [u8; 82] = [0; 82];
-        let remaining = t.serialize(&mut dest, 0..82).unwrap();
-        let mut formatter = NMEAFormatter::default();
-        let _result = formatter
-            .format_sentence(&dest[0..remaining.start])
-            .unwrap();
-        assert_eq!(
-            formatter.buffer().unwrap(),
-            b"$LNCCMD,SECRET_A,123,RQA,3F*04\r\n".as_slice()
-        );
+        let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
+        let result = t.commandeer(&mut dest).unwrap();
+        assert_eq!(result, b"$LNCCMD,SECRET_A,123,RQA,3F*04\r\n".as_slice());
         assert_matches!(
             t.process_response(b"$RQAACK,123456.001,LNC,123,3F*17\r\n"),
             Ok(_),
@@ -387,16 +438,15 @@ mod tests {
         let id = 123;
         let mut t = Transaction::new(sender, recipient, id, command);
 
-        let mut dest: [u8; 82] = [0; 82];
-        let remaining = t.serialize(&mut dest, 0..82).unwrap();
-        let mut formatter = NMEAFormatter::default();
-        let _result = formatter
-            .format_sentence(&dest[0..remaining.start])
-            .unwrap();
+        let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
+        let result = t.commandeer(&mut dest).unwrap();
+        assert_eq!(result, b"$LNCCMD,SECRET_AB,123,RQA,3F,AB*69\r\n".as_slice());
+
         assert_eq!(
-            formatter.buffer().unwrap(),
-            b"$LNCCMD,SECRET_AB,123,RQA,3F,AB*69\r\n".as_slice()
+            t.acknowledge(&mut dest).unwrap(),
+            b"$RQAACK,000000.001,LNC,123,3F,AB*3F\r\n".as_slice()
         );
+
         assert_matches!(
             t.process_response(b"$RQAACK,123456.001,LNC,123,3F,AB*38\r\n"),
             Ok(_),
@@ -415,16 +465,14 @@ mod tests {
         let id = 123;
         let mut t = Transaction::new(sender, recipient, id, command);
         assert_eq!(t.state(), TransactionState::Alive);
-        let mut dest: [u8; 82] = [0; 82];
-        let remaining = t.serialize(&mut dest, 0..82).unwrap();
-        let mut formatter = NMEAFormatter::default();
-        let _result = formatter
-            .format_sentence(&dest[0..remaining.start])
-            .unwrap();
+        let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
+        let result = t.commandeer(&mut dest).unwrap();
+        assert_eq!(result, b"$LNCCMD,RESET,123,RQA*00\r\n".as_slice());
         assert_eq!(
-            formatter.buffer().unwrap(),
-            b"$LNCCMD,RESET,123,RQA*00\r\n".as_slice()
+            t.acknowledge(&mut dest).unwrap(),
+            b"$RQAACK,000000.001,LNC,123*49\r\n".as_slice()
         );
+
         assert_matches!(
             t.process_response(b"$RQAACK,123456.001,LNC,123*4E\r\n"),
             Ok(_),
@@ -440,8 +488,8 @@ mod tests {
         let id = 123;
         let mut t = Transaction::new(sender, recipient, id, command);
 
-        let mut dest: [u8; 82] = [0; 82];
-        let remaining = t.serialize(&mut dest, 0..82).unwrap();
+        let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
+        let remaining = t.to_command(&mut dest, 0..MAX_BUFFER_SIZE).unwrap();
         let mut formatter = NMEAFormatter::default();
         let _result = formatter
             .format_sentence(&dest[0..remaining.start])
@@ -470,12 +518,12 @@ mod tests {
     fn test_too_small_buffer_handling() {
         let sender = Node::LaunchControl;
         let mut dest: [u8; 10] = [0; 10];
-        assert_matches!(sender.serialize(&mut dest, 0..10), Ok(_));
+        assert_matches!(sender.to_command(&mut dest, 0..10), Ok(_));
         assert_eq!(&dest[0..3], b"LNC");
-        assert_matches!(sender.serialize(&mut dest, 1..10), Ok(_));
+        assert_matches!(sender.to_command(&mut dest, 1..10), Ok(_));
         assert_eq!(&dest[1..4], b"LNC");
-        assert_matches!(sender.serialize(&mut dest, 7..10), Ok(_));
+        assert_matches!(sender.to_command(&mut dest, 7..10), Ok(_));
         assert_eq!(&dest[7..10], b"LNC");
-        assert_matches!(sender.serialize(&mut dest, 0..2), Err(_));
+        assert_matches!(sender.to_command(&mut dest, 0..2), Err(_));
     }
 }

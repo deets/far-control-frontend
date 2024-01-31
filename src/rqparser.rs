@@ -1,4 +1,4 @@
-use crate::rqprotocol::{AckHeader, Acknowledgement, Node, RqTimestamp};
+use crate::rqprotocol::{AckHeader, Acknowledgement, Command, Node, RqTimestamp, Transaction};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while_m_n},
@@ -14,7 +14,7 @@ const START_DELIMITER: u8 = b'$';
 const CHECKSUM_DELIMITER: u8 = b'*';
 const CR: u8 = b'\r';
 const LF: u8 = b'\n';
-const MAX_BUFFER_SIZE: usize = 82; // NMEA standard size!
+pub const MAX_BUFFER_SIZE: usize = 82; // NMEA standard size!
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -44,7 +44,7 @@ where
         Self {
             state: State::WaitForStart,
             ring_buffer,
-            output_buffer: [0; 82],
+            output_buffer: [0; MAX_BUFFER_SIZE],
         }
     }
 
@@ -333,6 +333,20 @@ fn command_id_parser(s: &[u8]) -> IResult<&[u8], usize> {
     Ok((rest, (a * 100 + b * 10 + c)))
 }
 
+fn command_reset_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
+    // LNCCMD,RESET,123,RQA
+    let (rest, (source, _, _, command_id, _, recipient)) = tuple((
+        node_parser,
+        tag(b"CMD,"),
+        tag(b"RESET,"),
+        command_id_parser,
+        tag(","),
+        node_parser,
+    ))(s)?;
+    let transaction = Transaction::new(source, recipient, command_id, Command::Reset);
+    Ok((rest, transaction))
+}
+
 #[cfg(test)]
 mod tests {
     use std::assert_matches::assert_matches;
@@ -553,5 +567,22 @@ mod tests {
     fn test_return_argument_parsing() {
         assert_matches!(one_return_value_parser(b",3F"), Ok((b"", 0x3f)));
         assert_matches!(two_return_values_parser(b",AB,CD"), Ok((b"", (0xab, 0xcd))));
+    }
+
+    #[test]
+    fn test_command_parsing() {
+        assert_matches!(
+            command_reset_parser(b"LNCCMD,RESET,123,RQA"),
+            Ok((
+                b"",
+                Transaction {
+                    id: 123,
+                    source: Node::LaunchControl,
+                    recipient: Node::RedQueen(b'A'),
+                    command: Command::Reset,
+                    ..
+                }
+            ))
+        );
     }
 }
