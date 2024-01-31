@@ -25,6 +25,8 @@ nb = "1.0.0"
 
 ringbuffer = "0.15.0"
 nom = "7.1.3"
+log = "0.4.20"
+simple_logger = "4.3.3"
 
 [dev-dependencies]
 mock_instant = "0.3.1"

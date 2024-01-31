@@ -159,6 +159,8 @@ impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
     }
 }
 
+impl std::error::Error for Error {}
+
 fn range_check(inner: &Range<usize>, outer: &Range<usize>) -> Result<(), Error> {
     // We encode a special-case here: if the inner range is right at the
     // end of the interval it is allowed to be empty. This facilitates
