@@ -1,8 +1,11 @@
 use anyhow::anyhow;
-use std::{
-    io::Write,
-    time::{Duration, Instant},
-};
+
+#[cfg(test)]
+use mock_instant::Instant;
+#[cfg(not(test))]
+use std::time::Instant;
+
+use std::{io::Write, time::Duration};
 
 use crate::{consort::Consort, ebyte::E32Connection, input::InputEvent, rqprotocol::Command};
 

@@ -2,7 +2,7 @@ use crate::rqprotocol::{AckHeader, Acknowledgement, Command, Node, RqTimestamp, 
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while_m_n},
-    character::{complete::alphanumeric1, is_alphabetic, is_digit, is_hex_digit},
+    character::{is_alphabetic, is_digit, is_hex_digit},
     multi::many1_count,
     sequence::{preceded, separated_pair, tuple},
     IResult,
@@ -347,6 +347,73 @@ fn command_reset_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
     Ok((rest, transaction))
 }
 
+fn command_ignition_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
+    // LNCCMD,IGNITION,123,RQA
+    let (rest, (source, _, _, command_id, _, recipient)) = tuple((
+        node_parser,
+        tag(b"CMD,"),
+        tag(b"IGNITION,"),
+        command_id_parser,
+        tag(","),
+        node_parser,
+    ))(s)?;
+    let transaction = Transaction::new(source, recipient, command_id, Command::Ignition);
+    Ok((rest, transaction))
+}
+
+fn command_secret_partial_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
+    // LNCCMD,SECRET_A,123,RQA,3F
+    let (rest, (source, _, _, command_id, _, recipient, _, secret)) = tuple((
+        node_parser,
+        tag(b"CMD,"),
+        tag(b"SECRET_A,"),
+        command_id_parser,
+        tag(","),
+        node_parser,
+        tag(b","),
+        hex_byte,
+    ))(s)?;
+    let transaction = Transaction::new(
+        source,
+        recipient,
+        command_id,
+        Command::LaunchSecretPartial(secret),
+    );
+    Ok((rest, transaction))
+}
+
+fn command_secret_full_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
+    // LNCCMD,SECRET_A,123,RQA,3F
+    let (rest, (source, _, _, command_id, _, recipient, _, secret_a, _, secret_b)) = tuple((
+        node_parser,
+        tag(b"CMD,"),
+        tag(b"SECRET_AB,"),
+        command_id_parser,
+        tag(","),
+        node_parser,
+        tag(b","),
+        hex_byte,
+        tag(b","),
+        hex_byte,
+    ))(s)?;
+    let transaction = Transaction::new(
+        source,
+        recipient,
+        command_id,
+        Command::LaunchSecretFull(secret_a, secret_b),
+    );
+    Ok((rest, transaction))
+}
+
+pub fn command_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
+    alt((
+        command_reset_parser,
+        command_ignition_parser,
+        command_secret_partial_parser,
+        command_secret_full_parser,
+    ))(s)
+}
+
 #[cfg(test)]
 mod tests {
     use std::assert_matches::assert_matches;
@@ -572,7 +639,7 @@ mod tests {
     #[test]
     fn test_command_parsing() {
         assert_matches!(
-            command_reset_parser(b"LNCCMD,RESET,123,RQA"),
+            command_parser(b"LNCCMD,RESET,123,RQA"),
             Ok((
                 b"",
                 Transaction {
@@ -580,6 +647,19 @@ mod tests {
                     source: Node::LaunchControl,
                     recipient: Node::RedQueen(b'A'),
                     command: Command::Reset,
+                    ..
+                }
+            ))
+        );
+        assert_matches!(
+            command_parser(b"LNCCMD,IGNITION,123,RQA"),
+            Ok((
+                b"",
+                Transaction {
+                    id: 123,
+                    source: Node::LaunchControl,
+                    recipient: Node::RedQueen(b'A'),
+                    command: Command::Ignition,
                     ..
                 }
             ))

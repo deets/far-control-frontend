@@ -1,7 +1,7 @@
 use std::{fmt::Display, ops::Range, time::Duration};
 
 use crate::rqparser::{
-    ack_parser, nibble_to_hex, one_return_value_parser, two_return_values_parser,
+    ack_parser, command_parser, nibble_to_hex, one_return_value_parser, two_return_values_parser,
     verify_nmea_format, NMEAFormatError, NMEAFormatter, MAX_BUFFER_SIZE,
 };
 
@@ -327,6 +327,11 @@ impl Transaction {
         }
     }
 
+    pub fn from_sentence(sentence: &[u8]) -> Result<Self, Error> {
+        let (_rest, transaction) = command_parser(sentence)?;
+        Ok(transaction)
+    }
+
     pub fn state(&self) -> TransactionState {
         self.state.clone()
     }
@@ -415,11 +420,7 @@ mod tests {
 
     #[test]
     fn test_launch_secret_partial() {
-        let command = Command::LaunchSecretPartial(0x3f);
-        let sender = Node::LaunchControl;
-        let recipient = Node::RedQueen(b'A');
-        let id = 123;
-        let mut t = Transaction::new(sender, recipient, id, command);
+        let mut t = Transaction::from_sentence(b"LNCCMD,SECRET_A,123,RQA,3F").unwrap();
 
         let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
         let result = t.commandeer(&mut dest).unwrap();
@@ -432,11 +433,7 @@ mod tests {
 
     #[test]
     fn test_launch_secret_full() {
-        let command = Command::LaunchSecretFull(0x3f, 0xab);
-        let sender = Node::LaunchControl;
-        let recipient = Node::RedQueen(b'A');
-        let id = 123;
-        let mut t = Transaction::new(sender, recipient, id, command);
+        let mut t = Transaction::from_sentence(b"LNCCMD,SECRET_AB,123,RQA,3F,AB").unwrap();
 
         let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
         let result = t.commandeer(&mut dest).unwrap();
@@ -459,11 +456,7 @@ mod tests {
 
     #[test]
     fn test_reset() {
-        let command = Command::Reset;
-        let sender = Node::LaunchControl;
-        let recipient = Node::RedQueen(b'A');
-        let id = 123;
-        let mut t = Transaction::new(sender, recipient, id, command);
+        let mut t = Transaction::from_sentence(b"LNCCMD,RESET,123,RQA").unwrap();
         assert_eq!(t.state(), TransactionState::Alive);
         let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
         let result = t.commandeer(&mut dest).unwrap();
@@ -482,12 +475,7 @@ mod tests {
 
     #[test]
     fn test_ignition() {
-        let command = Command::Ignition;
-        let sender = Node::LaunchControl;
-        let recipient = Node::RedQueen(b'A');
-        let id = 123;
-        let mut t = Transaction::new(sender, recipient, id, command);
-
+        let mut t = Transaction::from_sentence(b"LNCCMD,IGNITION,123,RQA").unwrap();
         let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
         let remaining = t.to_command(&mut dest, 0..MAX_BUFFER_SIZE).unwrap();
         let mut formatter = NMEAFormatter::default();
