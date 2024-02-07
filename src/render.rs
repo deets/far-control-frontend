@@ -1,11 +1,9 @@
 use std::f64::consts::TAU;
 
-use egui::plot::{Legend, Line, LineStyle, Plot, PlotPoints};
-use egui::{Color32, Rect, Stroke, Ui, Vec2};
+use egui::plot::{Line, LineStyle, Plot, PlotPoints};
+use egui::{Color32, Rect, Ui, Vec2};
 
-use crate::layout;
-use crate::layout::colors::muted;
-use crate::state::{ActiveTab, ControlArea, State};
+use crate::state::{ActiveTab, Model};
 
 fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
     let lt = rect.left_top();
@@ -18,7 +16,7 @@ fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
     (left, right)
 }
 
-fn render_header(ui: &mut Ui, state: &State) {
+fn render_header(ui: &mut Ui, state: &Model) {
     let mut active_panel = state.active.clone();
     ui.horizontal(|ui| {
         ui.selectable_value(&mut active_panel, ActiveTab::Observables, "Observables");
@@ -56,21 +54,27 @@ fn render_header(ui: &mut Ui, state: &State) {
     //ui.painter().rect(active_rect, 0.0, active, Stroke::NONE);
 }
 
-fn render_body(ui: &mut Ui, state: &State) {
-    let desired_size = [ui.available_width(), ui.available_height()];
-    let (_id, rect) = ui.allocate_space(desired_size.into());
-    let color = match state.active {
-        ActiveTab::Observables => layout::colors::OBSERVABLES,
-        ActiveTab::LaunchControl => layout::colors::LAUNCHCONTROL,
-    };
-    let color = match state.control {
-        ControlArea::Tabs => muted(color),
-        ControlArea::Details => color,
-    };
-    ui.painter().rect(rect, 0.0, color, Stroke::NONE);
+fn render_launch_control(ui: &mut Ui, model: &Model) {
+    ui.vertical_centered(|ui| {
+        ui.label(match model.state() {
+            crate::state::State::Start => "Start",
+            crate::state::State::Failure => "Failure",
+            crate::state::State::Reset => "Reset",
+            crate::state::State::Idle => "Idle",
+        });
+    });
 }
 
-fn render_status(ui: &mut Ui, state: &State) {
+fn render_body(ui: &mut Ui, state: &Model) {
+    match state.active {
+        ActiveTab::Observables => {}
+        ActiveTab::LaunchControl => {
+            render_launch_control(ui, state);
+        }
+    }
+}
+
+fn render_status(ui: &mut Ui, state: &Model) {
     ui.horizontal(|ui| {
         ui.spinner();
         ui.ctx().request_repaint();
@@ -98,7 +102,7 @@ fn render_status(ui: &mut Ui, state: &State) {
     });
 }
 
-pub fn render(ui: &mut Ui, state: &State) {
+pub fn render(ui: &mut Ui, state: &Model) {
     egui::TopBottomPanel::top("top_panel")
         .resizable(false)
         .min_height(ui.spacing().interact_size.y * 2.0)

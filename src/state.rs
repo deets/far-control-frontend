@@ -1,17 +1,18 @@
-use anyhow::anyhow;
-
-use log::{debug, error, warn};
+use log::{debug, error};
 #[cfg(test)]
 use mock_instant::Instant;
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 #[cfg(not(test))]
 use std::time::Instant;
 
-use std::{cell::RefCell, io::Write, rc::Rc, time::Duration};
+use std::time::Duration;
 
 use crate::{
-    consort::Consort, ebyte::E32Connection, input::InputEvent, rqparser::MAX_BUFFER_SIZE,
-    rqprotocol::Command,
+    consort::Consort,
+    ebyte::E32Connection,
+    input::InputEvent,
+    rqparser::MAX_BUFFER_SIZE,
+    rqprotocol::{Command, Response},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -26,18 +27,26 @@ pub enum ControlArea {
     Details,
 }
 
-pub struct State<'a> {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum State {
+    Start,
+    Failure,
+    Reset,
+    Idle,
+}
+
+pub struct Model<'a> {
     pub active: ActiveTab,
     pub control: ControlArea,
     pub consort: Consort<'a>,
     start: Instant,
     now: Instant,
-    send: bool,
+    state: State,
 }
 
 impl Default for ActiveTab {
     fn default() -> Self {
-        Self::Observables
+        Self::LaunchControl
     }
 }
 
@@ -47,7 +56,7 @@ impl Default for ControlArea {
     }
 }
 
-impl<'a> State<'a> {
+impl<'a> Model<'a> {
     pub fn new(consort: Consort<'a>, now: Instant) -> Self {
         Self {
             active: Default::default(),
@@ -55,7 +64,7 @@ impl<'a> State<'a> {
             consort,
             start: now,
             now,
-            send: false,
+            state: State::Start,
         }
     }
 
@@ -63,61 +72,88 @@ impl<'a> State<'a> {
         self.now - self.start
     }
 
+    pub fn state(&self) -> State {
+        self.state
+    }
+
     pub fn drive(&mut self, now: Instant, module: &mut E32Connection) -> anyhow::Result<()> {
         self.now = now;
         self.consort.update_time(now);
+        // When we are in start state, start a reset cycle
+        match self.state {
+            State::Start => {
+                debug!("Resetting because we are in Start");
+                self.reset(module);
+                return Ok(());
+            }
+            _ => {}
+        }
+
         let mut ringbuffer = AllocRingBuffer::new(MAX_BUFFER_SIZE);
+        let mut timeout = false;
         module.recv(|answer| match answer {
             crate::ebyte::Answers::Received(sentence) => {
-                debug!("got sentence {:?}", std::str::from_utf8(&sentence).unwrap());
                 for c in sentence {
                     ringbuffer.push(c);
                 }
             }
             crate::ebyte::Answers::Timeout => {
-                error!("Timeout, we need to reset!");
+                timeout = true;
             }
         });
-        if ringbuffer.len() > 0 {
-            debug!("rb len before feeding: {}", ringbuffer.len());
-        }
-        while !ringbuffer.is_empty() {
-            match self.consort.feed(&mut ringbuffer) {
-                Ok(_) => {
-                    debug!("consort happy, rb len: {}", ringbuffer.len());
-                    self.consort.reset();
-                }
-                Err(err) => {
-                    error!("consort unhappy: {:?}", err);
-                    self.consort.reset();
-                    break;
+
+        if timeout {
+            self.reset(module);
+        } else {
+            while !ringbuffer.is_empty() {
+                match self.consort.feed(&mut ringbuffer) {
+                    Ok(response) => {
+                        if let Some(response) = response {
+                            self.process_response(response);
+                        }
+                    }
+                    Err(err) => {
+                        error!("Feeding consort error: {:?}", err);
+                        self.reset(module);
+                        break;
+                    }
                 }
             }
-        }
-
-        if self.send && !self.consort.busy() {
-            debug!("triggering send via key");
-            self.send = false;
-            match self.consort.send_command(Command::Reset, module) {
-                Ok(_) => {
-                    debug!("sent data");
-                }
-                Err(_) => {
-                    return Err(anyhow!("Command::Reset error"));
-                }
-            };
         }
         Ok(())
     }
 
+    fn reset(&mut self, module: &mut E32Connection) {
+        self.state = State::Reset;
+        self.consort.reset();
+        match self.consort.send_command(Command::Reset, module) {
+            Ok(_) => {}
+            Err(_) => {
+                error!("Resetting failed");
+                self.state = State::Failure;
+            }
+        }
+    }
+
+    fn process_response(&mut self, response: Response) {
+        match self.state {
+            State::Start => {}
+            State::Failure => todo!(),
+            State::Reset => match response {
+                Response::ResetAck => {
+                    debug!("Acknowledged Reset, go to Idle");
+                    self.state = State::Idle;
+                }
+                _ => {
+                    self.state = State::Start;
+                }
+            },
+            State::Idle => {}
+        }
+    }
+
     pub fn process_input_events(&mut self, events: &Vec<InputEvent>) {
         for event in events {
-            match event {
-                InputEvent::Send => {
-                    self.send = true;
-                }
-                _ => {}
-            }
             self.process_input_event(event);
         }
     }

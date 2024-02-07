@@ -5,7 +5,7 @@ use control_frontend::ebyte::E32Connection;
 use control_frontend::input::InputEvent;
 use control_frontend::render::render;
 use control_frontend::rqprotocol::Node;
-use control_frontend::state::State;
+use control_frontend::state::Model;
 use control_frontend::timestep::TimeStep;
 
 use control_frontend::visualisation::setup_custom_fonts;
@@ -66,7 +66,7 @@ async fn run() -> anyhow::Result<()> {
         &mut ringbuffer,
         start_time,
     );
-    let mut state = State::new(consort, start_time);
+    let mut state = Model::new(consort, start_time);
     let ctx = platform.context();
     //setup_custom_fonts(&ctx);
 

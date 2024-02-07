@@ -66,13 +66,17 @@ impl Display for Error {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Response {
-    Ack,
+    ResetAck,
+    IgnitionAck,
+    LaunchSecretFullAck,
+    LaunchSecretPartialAck,
 }
 
 enum CommandProcessor {
-    Ack,
+    ResetAck,
     LaunchSecretPartial(u8),
     LaunchSecretFull(u8, u8),
+    IgnitionAck,
 }
 
 impl Command {
@@ -87,10 +91,10 @@ impl Command {
 
     fn processor(&self) -> CommandProcessor {
         match self {
-            Command::Reset => CommandProcessor::Ack,
+            Command::Reset => CommandProcessor::ResetAck,
             Command::LaunchSecretPartial(a) => CommandProcessor::LaunchSecretPartial(*a),
             Command::LaunchSecretFull(a, b) => CommandProcessor::LaunchSecretFull(*a, *b),
-            Command::Ignition => CommandProcessor::Ack,
+            Command::Ignition => CommandProcessor::IgnitionAck,
         }
     }
 }
@@ -392,7 +396,7 @@ impl CommandProcessor {
             CommandProcessor::LaunchSecretPartial(a) => {
                 let (rest, param) = one_return_value_parser(params)?;
                 if param == *a {
-                    Ok((rest, Response::Ack))
+                    Ok((rest, Response::LaunchSecretPartialAck))
                 } else {
                     Err(Error::ParseError)
                 }
@@ -400,12 +404,13 @@ impl CommandProcessor {
             CommandProcessor::LaunchSecretFull(a, b) => {
                 let (rest, (param1, param2)) = two_return_values_parser(params)?;
                 if param1 == *a && param2 == *b {
-                    Ok((rest, Response::Ack))
+                    Ok((rest, Response::LaunchSecretFullAck))
                 } else {
                     Err(Error::ParseError)
                 }
             }
-            CommandProcessor::Ack => Ok((params, Response::Ack)),
+            CommandProcessor::ResetAck => Ok((params, Response::ResetAck)),
+            CommandProcessor::IgnitionAck => Ok((params, Response::IgnitionAck)),
         }
     }
 }
