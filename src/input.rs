@@ -4,4 +4,5 @@ pub enum InputEvent {
     Back,
     Left(u32),
     Right(u32),
+    Send,
 }

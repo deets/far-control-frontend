@@ -5,11 +5,11 @@ use std::time::Instant;
 
 use std::io::Write;
 
-use ringbuffer::AllocRingBuffer;
+use ringbuffer::{AllocRingBuffer, RingBuffer};
 
 use crate::{
-    rqparser::{NMEAFormatError, NMEAFormatter, SentenceParser},
-    rqprotocol::{Command, Marshal, Node, Response, Transaction, TransactionState},
+    rqparser::{NMEAFormatError, SentenceParser},
+    rqprotocol::{Command, Node, Response, Transaction, TransactionState},
 };
 
 use crate::rqparser::Error as ParserError;
@@ -60,6 +60,13 @@ impl From<ParserError> for Error {
     }
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+impl std::error::Error for Error {}
+
 impl<'a> Consort<'a> {
     pub fn new(
         me: Node,
@@ -106,17 +113,17 @@ impl<'a> Consort<'a> {
 
     pub fn feed(
         &mut self,
-        ringbuffer: &'a mut AllocRingBuffer<u8>,
+        ringbuffer: &mut AllocRingBuffer<u8>,
     ) -> Result<Option<Response>, Error> {
-        let mut extracted_sentence: Option<Vec<u8>> = None;
         // This is a bit  ugly but so far I have no better answer.
         // To keep the interface based on a single Response (or None),
         // we feed the incoming data byte-wise into the system and
         // stop in the moment we get a full sentence.
         // This allows the call-site to spoon-feed the data and
         // react on the outgoing response, driving FSMs etc.
-        for c in ringbuffer {
-            let data = [*c];
+        let mut extracted_sentence: Option<Vec<u8>> = None;
+        while !ringbuffer.is_empty() {
+            let data = [ringbuffer.dequeue().unwrap()];
             self.sentence_parser.feed(&data, |sentence: &[u8]| {
                 extracted_sentence = Some(sentence.into());
             })?;
@@ -124,18 +131,22 @@ impl<'a> Consort<'a> {
                 break;
             }
         }
-        match &mut self.transaction {
-            Some(transaction) => {
-                let result = Ok(Some(transaction.process_response(
-                    extracted_sentence.expect("Can't be None").as_slice(),
-                )?));
-                assert!(transaction.state() == TransactionState::Dead);
-                self.transaction = None;
-                result
+        // if we extracted a sentence, process it
+        if let Some(sentence) = extracted_sentence {
+            match &mut self.transaction {
+                Some(transaction) => {
+                    let result = Ok(Some(transaction.process_response(sentence.as_slice())?));
+                    assert!(transaction.state() == TransactionState::Dead);
+                    self.transaction = None;
+                    return result;
+                }
+                // We don't expect data
+                None => {
+                    return Err(Error::SpuriousSentence);
+                }
             }
-            // We don't expect data
-            None => Err(Error::SpuriousSentence),
         }
+        Ok(None)
     }
 
     pub fn update_time(&mut self, now: Instant) {
@@ -226,14 +237,40 @@ mod tests {
             .unwrap();
         assert_eq!(
             mock_port.sent_messages.borrow_mut().pop(),
-            Some(b"$LNCCMD,RESET,001,RQA*01\r\n".as_slice().into())
+            Some(b"$LNCCMD,001,RQA,RESET*01\r\n".as_slice().into())
         );
         let mut inputbuffer = ringbuffer::AllocRingBuffer::new(256);
-        for c in b"$RQAACK,123456.001,LNC,001*4F\r\n" {
+        for c in b"$RQAACK,001,LNC*7B\r\n" {
             inputbuffer.push(*c);
         }
         assert_matches!(consort.feed(&mut inputbuffer), Ok(Some(_)));
         assert_matches!(consort.transaction, None);
+        assert!(inputbuffer.is_empty());
+    }
+
+    #[test]
+    fn test_sending_command_and_receiving_partial_answer() {
+        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
+        let mut consort = Consort::new(
+            Node::LaunchControl,
+            Node::RedQueen(b'A'),
+            &mut ringbuffer,
+            Instant::now(),
+        );
+        let mut mock_port = MockPort::default();
+        consort
+            .send_command(Command::Reset, &mut mock_port)
+            .unwrap();
+        assert_eq!(
+            mock_port.sent_messages.borrow_mut().pop(),
+            Some(b"$LNCCMD,001,RQA,RESET*01\r\n".as_slice().into())
+        );
+        let mut inputbuffer = ringbuffer::AllocRingBuffer::new(256);
+        for c in b"$RQAACK,001" {
+            inputbuffer.push(*c);
+        }
+        assert_matches!(consort.feed(&mut inputbuffer), Ok(None));
+        assert_matches!(consort.transaction, Some(_));
     }
 
     #[test]
@@ -251,10 +288,5 @@ mod tests {
             inputbuffer.push(*c);
         }
         assert_matches!(consort.feed(&mut inputbuffer), Err(Error::SpuriousSentence));
-    }
-
-    #[test]
-    fn test_sending_more_than_one_command() {
-        todo!();
     }
 }

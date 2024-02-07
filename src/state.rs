@@ -1,13 +1,18 @@
 use anyhow::anyhow;
 
+use log::{debug, error, warn};
 #[cfg(test)]
 use mock_instant::Instant;
+use ringbuffer::{AllocRingBuffer, RingBuffer};
 #[cfg(not(test))]
 use std::time::Instant;
 
-use std::{io::Write, time::Duration};
+use std::{cell::RefCell, io::Write, rc::Rc, time::Duration};
 
-use crate::{consort::Consort, ebyte::E32Connection, input::InputEvent, rqprotocol::Command};
+use crate::{
+    consort::Consort, ebyte::E32Connection, input::InputEvent, rqparser::MAX_BUFFER_SIZE,
+    rqprotocol::Command,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActiveTab {
@@ -27,6 +32,7 @@ pub struct State<'a> {
     pub consort: Consort<'a>,
     start: Instant,
     now: Instant,
+    send: bool,
 }
 
 impl Default for ActiveTab {
@@ -49,6 +55,7 @@ impl<'a> State<'a> {
             consort,
             start: now,
             now,
+            send: false,
         }
     }
 
@@ -59,10 +66,41 @@ impl<'a> State<'a> {
     pub fn drive(&mut self, now: Instant, module: &mut E32Connection) -> anyhow::Result<()> {
         self.now = now;
         self.consort.update_time(now);
-        if !module.busy() {
+        let mut ringbuffer = AllocRingBuffer::new(MAX_BUFFER_SIZE);
+        module.recv(|answer| match answer {
+            crate::ebyte::Answers::Received(sentence) => {
+                debug!("got sentence {:?}", std::str::from_utf8(&sentence).unwrap());
+                for c in sentence {
+                    ringbuffer.push(c);
+                }
+            }
+            crate::ebyte::Answers::Timeout => {
+                error!("Timeout, we need to reset!");
+            }
+        });
+        if ringbuffer.len() > 0 {
+            debug!("rb len before feeding: {}", ringbuffer.len());
+        }
+        while !ringbuffer.is_empty() {
+            match self.consort.feed(&mut ringbuffer) {
+                Ok(_) => {
+                    debug!("consort happy, rb len: {}", ringbuffer.len());
+                    self.consort.reset();
+                }
+                Err(err) => {
+                    error!("consort unhappy: {:?}", err);
+                    self.consort.reset();
+                    break;
+                }
+            }
+        }
+
+        if self.send && !self.consort.busy() {
+            debug!("triggering send via key");
+            self.send = false;
             match self.consort.send_command(Command::Reset, module) {
                 Ok(_) => {
-                    self.consort.reset();
+                    debug!("sent data");
                 }
                 Err(_) => {
                     return Err(anyhow!("Command::Reset error"));
@@ -74,6 +112,12 @@ impl<'a> State<'a> {
 
     pub fn process_input_events(&mut self, events: &Vec<InputEvent>) {
         for event in events {
+            match event {
+                InputEvent::Send => {
+                    self.send = true;
+                }
+                _ => {}
+            }
             self.process_input_event(event);
         }
     }

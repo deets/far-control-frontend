@@ -46,7 +46,6 @@ pub struct AckHeader {
     // The node the original command was issued from
     // and this ack is the destination for.
     pub recipient: Node,
-    pub timestamp: RqTimestamp,
     pub id: usize,
 }
 
@@ -154,7 +153,7 @@ impl From<NMEAFormatError<'_>> for Error {
 }
 
 impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
-    fn from(value: nom::Err<nom::error::Error<&[u8]>>) -> Self {
+    fn from(_value: nom::Err<nom::error::Error<&[u8]>>) -> Self {
         Error::ParseError
     }
 }
@@ -293,11 +292,11 @@ impl Marshal for Transaction {
     ) -> Result<Range<usize>, Error> {
         let range = self.source.to_command(buffer, range)?;
         let range = append_bytes(buffer, range, b"CMD,")?;
-        let range = append_bytes(buffer, range, self.command.verb())?;
-        let range = append_bytes(buffer, range, b",")?;
         let range = serialize_count(buffer, range, self.id)?;
         let range = append_bytes(buffer, range, b",")?;
         let range = self.recipient.to_command(buffer, range)?;
+        let range = append_bytes(buffer, range, b",")?;
+        let range = append_bytes(buffer, range, self.command.verb())?;
         Ok(self.command.to_command(buffer, range)?)
     }
 
@@ -309,10 +308,9 @@ impl Marshal for Transaction {
         // b"$RQAACK,123456.001,LNC,123,3F*17\r\n"
         let range = self.recipient.to_command(buffer, range)?;
         let range = append_bytes(buffer, range, b"ACK,")?;
-        let range = append_bytes(buffer, range, b"000000.001,")?;
-        let range = self.source.to_command(buffer, range)?;
-        let range = append_bytes(buffer, range, b",")?;
         let range = serialize_count(buffer, range, self.id)?;
+        let range = append_bytes(buffer, range, b",")?;
+        let range = self.source.to_command(buffer, range)?;
         let range = self.command.to_acknowledgement(buffer, range)?;
         Ok(range)
     }
@@ -408,90 +406,76 @@ impl CommandProcessor {
                 }
             }
             CommandProcessor::Ack => Ok((params, Response::Ack)),
-            _ => Err(Error::ParseError),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::rqparser::{NMEAFormatter, MAX_BUFFER_SIZE};
+    use crate::rqparser::MAX_BUFFER_SIZE;
     use std::assert_matches::assert_matches;
 
     use super::*;
 
     #[test]
     fn test_launch_secret_partial() {
-        let mut t = Transaction::from_sentence(b"LNCCMD,SECRET_A,123,RQA,3F").unwrap();
+        let mut t = Transaction::from_sentence(b"LNCCMD,123,RQA,SECRET_A,3F").unwrap();
 
         let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
         let result = t.commandeer(&mut dest).unwrap();
-        assert_eq!(result, b"$LNCCMD,SECRET_A,123,RQA,3F*04\r\n".as_slice());
-        assert_matches!(
-            t.process_response(b"$RQAACK,123456.001,LNC,123,3F*17\r\n"),
-            Ok(_),
+        assert_eq!(result, b"$LNCCMD,123,RQA,SECRET_A,3F*04\r\n".as_slice());
+        assert_eq!(
+            t.acknowledge(&mut dest).unwrap(),
+            b"$RQAACK,123,LNC,3F*23\r\n".as_slice()
         );
+        assert_matches!(t.process_response(b"$RQAACK,123,LNC,3F*23\r\n"), Ok(_),);
+        assert_eq!(t.state(), TransactionState::Dead);
     }
 
     #[test]
     fn test_launch_secret_full() {
-        let mut t = Transaction::from_sentence(b"LNCCMD,SECRET_AB,123,RQA,3F,AB").unwrap();
+        let mut t = Transaction::from_sentence(b"LNCCMD,123,RQA,SECRET_AB,3F,AB").unwrap();
 
         let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
         let result = t.commandeer(&mut dest).unwrap();
-        assert_eq!(result, b"$LNCCMD,SECRET_AB,123,RQA,3F,AB*69\r\n".as_slice());
+        assert_eq!(result, b"$LNCCMD,123,RQA,SECRET_AB,3F,AB*69\r\n".as_slice());
 
         assert_eq!(
             t.acknowledge(&mut dest).unwrap(),
-            b"$RQAACK,000000.001,LNC,123,3F,AB*3F\r\n".as_slice()
+            b"$RQAACK,123,LNC,3F,AB*0C\r\n".as_slice()
         );
 
+        assert_matches!(t.process_response(b"$RQAACK,123,LNC,3F,AB*0C\r\n"), Ok(_),);
         assert_matches!(
-            t.process_response(b"$RQAACK,123456.001,LNC,123,3F,AB*38\r\n"),
-            Ok(_),
-        );
-        assert_matches!(
-            t.process_response(b"$RQAACK,123456.001,LNC,123,3F,ABfoo*5E\r\n"),
+            t.process_response(b"$RQAACK,123,LNC,3F,ABfoo*6A\r\n"),
             Err(Error::FormatError(FormatErrorDetail::TrailingCharacters)),
-        );
-    }
-
-    #[test]
-    fn test_reset() {
-        let mut t = Transaction::from_sentence(b"LNCCMD,RESET,123,RQA").unwrap();
-        assert_eq!(t.state(), TransactionState::Alive);
-        let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
-        let result = t.commandeer(&mut dest).unwrap();
-        assert_eq!(result, b"$LNCCMD,RESET,123,RQA*00\r\n".as_slice());
-        assert_eq!(
-            t.acknowledge(&mut dest).unwrap(),
-            b"$RQAACK,000000.001,LNC,123*49\r\n".as_slice()
-        );
-
-        assert_matches!(
-            t.process_response(b"$RQAACK,123456.001,LNC,123*4E\r\n"),
-            Ok(_),
         );
         assert_eq!(t.state(), TransactionState::Dead);
     }
 
     #[test]
-    fn test_ignition() {
-        let mut t = Transaction::from_sentence(b"LNCCMD,IGNITION,123,RQA").unwrap();
+    fn test_reset() {
+        let mut t = Transaction::from_sentence(b"LNCCMD,123,RQA,RESET").unwrap();
+        assert_eq!(t.state(), TransactionState::Alive);
         let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
-        let remaining = t.to_command(&mut dest, 0..MAX_BUFFER_SIZE).unwrap();
-        let mut formatter = NMEAFormatter::default();
-        let _result = formatter
-            .format_sentence(&dest[0..remaining.start])
-            .unwrap();
+        let result = t.commandeer(&mut dest).unwrap();
+        assert_eq!(result, b"$LNCCMD,123,RQA,RESET*00\r\n".as_slice());
         assert_eq!(
-            formatter.buffer().unwrap(),
-            b"$LNCCMD,IGNITION,123,RQA*40\r\n".as_slice()
+            t.acknowledge(&mut dest).unwrap(),
+            b"$RQAACK,123,LNC*7A\r\n".as_slice()
         );
-        assert_matches!(
-            t.process_response(b"$RQAACK,123456.001,LNC,123*4E\r\n"),
-            Ok(_),
-        );
+
+        assert_matches!(t.process_response(b"$RQAACK,123,LNC*7A\r\n"), Ok(_),);
+        assert_eq!(t.state(), TransactionState::Dead);
+    }
+
+    #[test]
+    fn test_ignition() {
+        let mut t = Transaction::from_sentence(b"LNCCMD,123,RQA,IGNITION").unwrap();
+        let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
+        let result = t.commandeer(&mut dest).unwrap();
+        assert_eq!(result, b"$LNCCMD,123,RQA,IGNITION*40\r\n".as_slice());
+        assert_matches!(t.process_response(b"$RQAACK,123,LNC*7A\r\n"), Ok(_),);
         assert_eq!(t.state(), TransactionState::Dead);
     }
 

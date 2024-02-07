@@ -268,20 +268,17 @@ fn timestamp_parser(s: &[u8]) -> IResult<&[u8], RqTimestamp> {
 }
 
 pub fn ack_parser(s: &[u8]) -> IResult<&[u8], Acknowledgement> {
-    let (rest, (source, acknowledgement, _, timestamp, _, recipient, _, id)) = tuple((
+    let (rest, (source, acknowledgement, _, id, _, recipient)) = tuple((
         node_parser,
         alt((tag(b"ACK"), tag(b"NAK"))),
         tag(b","),
-        timestamp_parser,
+        command_id_parser,
         tag(b","),
         node_parser,
-        tag(b","),
-        command_id_parser,
     ))(s)?;
     let response = AckHeader {
         source,
         recipient,
-        timestamp,
         id,
     };
     match acknowledgement {
@@ -333,46 +330,39 @@ fn command_id_parser(s: &[u8]) -> IResult<&[u8], usize> {
     Ok((rest, (a * 100 + b * 10 + c)))
 }
 
-fn command_reset_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
-    // LNCCMD,RESET,123,RQA
-    let (rest, (source, _, _, command_id, _, recipient)) = tuple((
+fn command_prefix_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node)> {
+    // LNCCMD,123,RQA
+    let (rest, (source, _, command_id, _, recipient, _)) = tuple((
         node_parser,
         tag(b"CMD,"),
-        tag(b"RESET,"),
         command_id_parser,
         tag(","),
         node_parser,
+        tag(b","),
     ))(s)?;
+    Ok((rest, (source, command_id, recipient)))
+}
+
+fn command_reset_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
+    // LNCCMD,123,RQA,RESET
+    let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
+    let (rest, _) = tag(b"RESET")(rest)?;
     let transaction = Transaction::new(source, recipient, command_id, Command::Reset);
     Ok((rest, transaction))
 }
 
 fn command_ignition_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
-    // LNCCMD,IGNITION,123,RQA
-    let (rest, (source, _, _, command_id, _, recipient)) = tuple((
-        node_parser,
-        tag(b"CMD,"),
-        tag(b"IGNITION,"),
-        command_id_parser,
-        tag(","),
-        node_parser,
-    ))(s)?;
+    // LNCCMD,123,RQA,IGNITION
+    let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
+    let (rest, _) = tag(b"IGNITION")(rest)?;
     let transaction = Transaction::new(source, recipient, command_id, Command::Ignition);
     Ok((rest, transaction))
 }
 
 fn command_secret_partial_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
-    // LNCCMD,SECRET_A,123,RQA,3F
-    let (rest, (source, _, _, command_id, _, recipient, _, secret)) = tuple((
-        node_parser,
-        tag(b"CMD,"),
-        tag(b"SECRET_A,"),
-        command_id_parser,
-        tag(","),
-        node_parser,
-        tag(b","),
-        hex_byte,
-    ))(s)?;
+    // LNCCMD,123,RQA,SECRET_A,3F
+    let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
+    let (rest, (_, secret)) = tuple((tag(b"SECRET_A,"), hex_byte))(rest)?;
     let transaction = Transaction::new(
         source,
         recipient,
@@ -383,19 +373,10 @@ fn command_secret_partial_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
 }
 
 fn command_secret_full_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
-    // LNCCMD,SECRET_A,123,RQA,3F
-    let (rest, (source, _, _, command_id, _, recipient, _, secret_a, _, secret_b)) = tuple((
-        node_parser,
-        tag(b"CMD,"),
-        tag(b"SECRET_AB,"),
-        command_id_parser,
-        tag(","),
-        node_parser,
-        tag(b","),
-        hex_byte,
-        tag(b","),
-        hex_byte,
-    ))(s)?;
+    // LNCCMD,123,RQA,SECRET_AB,3F,AB
+    let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
+    let (rest, (_, secret_a, _, secret_b)) =
+        tuple((tag(b"SECRET_AB,"), hex_byte, tag(b","), hex_byte))(rest)?;
     let transaction = Transaction::new(
         source,
         recipient,
@@ -613,7 +594,7 @@ mod tests {
 
     #[test]
     fn test_ack_parsing() {
-        let inner_sentence = b"RQEACK,123456.012,LNC,123";
+        let inner_sentence = b"RQEACK,123,LNC";
         assert_matches!(
             ack_parser(inner_sentence),
             Ok((
@@ -626,7 +607,7 @@ mod tests {
                 })
             ))
         );
-        let inner_sentence = b"RQENAK,123456.012,LNC,123";
+        let inner_sentence = b"RQENAK,123,LNC";
         assert_matches!(ack_parser(inner_sentence), Ok((_, Acknowledgement::Nak(_))));
     }
 
@@ -639,7 +620,7 @@ mod tests {
     #[test]
     fn test_command_parsing() {
         assert_matches!(
-            command_parser(b"LNCCMD,RESET,123,RQA"),
+            command_parser(b"LNCCMD,123,RQA,RESET"),
             Ok((
                 b"",
                 Transaction {
@@ -652,7 +633,7 @@ mod tests {
             ))
         );
         assert_matches!(
-            command_parser(b"LNCCMD,IGNITION,123,RQA"),
+            command_parser(b"LNCCMD,123,RQA,IGNITION"),
             Ok((
                 b"",
                 Transaction {
@@ -664,5 +645,38 @@ mod tests {
                 }
             ))
         );
+        assert_matches!(
+            command_parser(b"LNCCMD,123,RQA,SECRET_A,AB"),
+            Ok((
+                b"",
+                Transaction {
+                    id: 123,
+                    source: Node::LaunchControl,
+                    recipient: Node::RedQueen(b'A'),
+                    command: Command::LaunchSecretPartial(0xab),
+                    ..
+                }
+            ))
+        );
+        assert_matches!(
+            command_parser(b"LNCCMD,123,RQA,SECRET_AB,AB,CD"),
+            Ok((
+                b"",
+                Transaction {
+                    id: 123,
+                    source: Node::LaunchControl,
+                    recipient: Node::RedQueen(b'A'),
+                    command: Command::LaunchSecretFull(0xab, 0xcd),
+                    ..
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn test_actual_response() {
+        // 2024-02-07T08:42:08.132Z DEBUG [control_frontend::state] got sentence
+        //     $LNCCMD,001,RQA,RESET*01
+        assert_matches!(ack_parser(b"RQAACK,001,LNC,RESET"), Ok(_));
     }
 }
