@@ -76,6 +76,22 @@ impl<'a> Model<'a> {
         self.state
     }
 
+    pub fn hi_secret_a(&self) -> u8 {
+        0
+    }
+
+    pub fn lo_secret_a(&self) -> u8 {
+        1
+    }
+
+    pub fn hi_secret_b(&self) -> u8 {
+        2
+    }
+
+    pub fn lo_secret_b(&self) -> u8 {
+        11
+    }
+
     pub fn drive(&mut self, now: Instant, module: &mut E32Connection) -> anyhow::Result<()> {
         self.now = now;
         self.consort.update_time(now);

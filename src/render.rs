@@ -1,9 +1,11 @@
 use std::f64::consts::TAU;
 
+use egui::epaint::{Shadow, WHITE_UV};
 use egui::plot::{Line, LineStyle, Plot, PlotPoints};
-use egui::{Color32, Rect, Ui, Vec2};
+use egui::{Align2, Color32, FontId, Frame, Rect, Rounding, Sense, Stroke, Ui, Vec2};
+use log::debug;
 
-use crate::state::{ActiveTab, Model};
+use crate::state::{ActiveTab, ControlArea, Model};
 
 fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
     let lt = rect.left_top();
@@ -26,41 +28,49 @@ fn render_header(ui: &mut Ui, state: &Model) {
             "Launch Control",
         );
     });
-    // ui.sel
-    // let desired_size = [
-    //     ui.available_width(),
-    //     ui.available_height() * layout::header::MARGIN,
-    // ];
-    // let (_id, rect) = ui.allocate_space(desired_size.into());
-    // ui.painter().rect(rect, 0.0, Color32::RED, Stroke::NONE);
-    // let (lr, rr) = split_rect_horizontally_at(&rect, 0.5);
-    // let (active, background, active_rect) = match state.active {
-    //     ActiveTab::Observables => (
-    //         layout::colors::OBSERVABLES,
-    //         muted(layout::colors::LAUNCHCONTROL),
-    //         lr,
-    //     ),
-    //     ActiveTab::LaunchControl => (
-    //         layout::colors::LAUNCHCONTROL,
-    //         muted(layout::colors::OBSERVABLES),
-    //         rr,
-    //     ),
-    // };
-    // let active = match state.control {
-    //     ControlArea::Details => muted(active),
-    //     ControlArea::Tabs => active,
-    // };
-    // ui.painter().rect(rect, 0.0, background, Stroke::NONE);
-    //ui.painter().rect(active_rect, 0.0, active, Stroke::NONE);
+}
+
+fn render_digit(ui: &mut Ui, digit: u8, active: bool) {
+    let digit_font = FontId::new(54.0, egui::FontFamily::Monospace);
+    let painter = ui.painter();
+    let text = match digit {
+        0..10 => format!("{}", digit),
+        10..16 => format!("{}", std::str::from_utf8(&[55 + digit]).expect("")),
+        _ => unreachable!(),
+    };
+
+    let galley = painter.layout_no_wrap(text.clone(), digit_font.clone(), Color32::RED);
+    let rect = galley.size();
+    let (response, painter) = ui.allocate_painter(rect.into(), Sense::hover());
+
+    painter.text(
+        response.rect.center(),
+        Align2::CENTER_CENTER,
+        text,
+        digit_font,
+        if active {
+            Color32::WHITE
+        } else {
+            Color32::DARK_GRAY
+        },
+    );
+    painter.rect(
+        response.rect,
+        Rounding::default(),
+        Color32::TRANSPARENT,
+        Stroke::new(4.0, Color32::RED),
+    );
 }
 
 fn render_launch_control(ui: &mut Ui, model: &Model) {
-    ui.vertical_centered(|ui| {
-        ui.label(match model.state() {
-            crate::state::State::Start => "Start",
-            crate::state::State::Failure => "Failure",
-            crate::state::State::Reset => "Reset",
-            crate::state::State::Idle => "Idle",
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            render_digit(ui, model.hi_secret_a(), true);
+            render_digit(ui, model.lo_secret_a(), false);
+        });
+        ui.horizontal(|ui| {
+            render_digit(ui, model.hi_secret_b(), false);
+            render_digit(ui, model.lo_secret_b(), false);
         });
     });
 }
@@ -74,41 +84,91 @@ fn render_body(ui: &mut Ui, state: &Model) {
     }
 }
 
-fn render_status(ui: &mut Ui, state: &Model) {
+fn render_status(ui: &mut Ui, model: &Model) {
     ui.horizontal(|ui| {
-        ui.spinner();
-        ui.ctx().request_repaint();
+        match model.state() {
+            crate::state::State::Failure => {
+                ui.spinner();
+            }
+            _ => {
+                ui.ctx().request_repaint();
 
-        let elapsed = state.elapsed();
-        let mut plot = Plot::new("lines_demo")
-            .height(ui.available_height())
-            .width(ui.available_height())
-            .show_axes([false, false])
-            .show_background(false);
-        plot = plot.data_aspect(1.0);
-        plot.show(ui, |ui| {
-            let steps = 16;
-            ui.line(
-                Line::new(PlotPoints::from_explicit_callback(
-                    move |x| 0.5 * (TAU * (x + elapsed.as_secs_f64())).sin(),
-                    0.0..=1.0,
-                    steps,
-                ))
-                .color(Color32::from_rgb(200, 100, 100))
-                .style(LineStyle::Solid)
-                .name("wave"),
-            );
+                let elapsed = model.elapsed();
+                let mut plot = Plot::new("lines_demo")
+                    .height(ui.available_height())
+                    .width(ui.available_height())
+                    .show_axes([false, false])
+                    .show_background(false);
+                plot = plot.data_aspect(1.0);
+                plot.show(ui, |ui| {
+                    let steps = 16;
+                    ui.line(
+                        Line::new(PlotPoints::from_explicit_callback(
+                            move |x| 0.5 * (TAU * (x + elapsed.as_secs_f64())).sin(),
+                            0.0..=1.0,
+                            steps,
+                        ))
+                        .color(Color32::from_rgb(200, 100, 100))
+                        .style(LineStyle::Solid)
+                        .name("wave"),
+                    );
+                });
+            }
+        };
+        ui.label(match model.state() {
+            crate::state::State::Start => "Start",
+            crate::state::State::Failure => "Failure",
+            crate::state::State::Reset => "Reset",
+            crate::state::State::Idle => "Idle",
         });
     });
 }
 
-pub fn render(ui: &mut Ui, state: &Model) {
+fn frame(active: bool) -> Frame {
+    egui::containers::Frame {
+        rounding: egui::Rounding {
+            nw: 1.0,
+            ne: 1.0,
+            sw: 1.0,
+            se: 1.0,
+        },
+        fill: match active {
+            true => Color32::DARK_RED,
+            false => Color32::TRANSPARENT,
+        },
+        stroke: egui::Stroke::NONE,
+        inner_margin: {
+            egui::style::Margin {
+                left: 10.,
+                right: 10.,
+                top: 10.,
+                bottom: 10.,
+            }
+        },
+        outer_margin: {
+            egui::style::Margin {
+                left: 10.,
+                right: 10.,
+                top: 10.,
+                bottom: 10.,
+            }
+        },
+        shadow: Shadow::NONE,
+    }
+}
+
+pub fn render(ui: &mut Ui, model: &Model) {
+    let tabs_active = match model.control {
+        ControlArea::Tabs => true,
+        ControlArea::Details => false,
+    };
     egui::TopBottomPanel::top("top_panel")
         .resizable(false)
+        .frame(frame(tabs_active))
         .min_height(ui.spacing().interact_size.y * 2.0)
         .show_inside(ui, |ui| {
             ui.vertical_centered(|ui| {
-                render_header(ui, state);
+                render_header(ui, model);
             });
         });
     egui::TopBottomPanel::bottom("bottom_panel")
@@ -116,10 +176,12 @@ pub fn render(ui: &mut Ui, state: &Model) {
         .min_height(ui.spacing().interact_size.y * 2.0)
         .show_inside(ui, |ui| {
             ui.vertical_centered(|ui| {
-                render_status(ui, state);
+                render_status(ui, model);
             });
         });
-    egui::CentralPanel::default().show_inside(ui, |ui| {
-        render_body(ui, state);
-    });
+    egui::CentralPanel::default()
+        .frame(frame(!tabs_active))
+        .show_inside(ui, |ui| {
+            render_body(ui, model);
+        });
 }
