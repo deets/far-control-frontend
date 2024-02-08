@@ -4,7 +4,9 @@ use egui::epaint::Shadow;
 use egui::plot::{Line, LineStyle, Plot, PlotPoints};
 use egui::{Align2, Color32, FontId, Frame, Rect, Rounding, Sense, Stroke, Ui, Vec2};
 
-use crate::model::{ActiveTab, ControlArea, Model, State};
+use crate::model::{
+    ControlArea, LaunchControlState, Mode, Model, ObservablesState, StateProcessing,
+};
 
 fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
     let lt = rect.left_top();
@@ -17,15 +19,14 @@ fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
     (left, right)
 }
 
-fn render_header(ui: &mut Ui, state: &Model) {
-    let mut active_panel = state.active.clone();
+fn render_header(ui: &mut Ui, model: &Model) {
     ui.horizontal(|ui| {
-        ui.selectable_value(&mut active_panel, ActiveTab::Observables, "Observables");
-        ui.selectable_value(
-            &mut active_panel,
-            ActiveTab::LaunchControl,
-            "Launch Control",
-        );
+        let is_observables = match model.mode() {
+            Mode::Observables(_) => true,
+            Mode::LaunchControl(_) => false,
+        };
+        let _ = ui.selectable_label(is_observables, "Observables");
+        let _ = ui.selectable_label(!is_observables, "Launch Control");
     });
 }
 
@@ -75,51 +76,43 @@ fn render_launch_control(ui: &mut Ui, model: &Model) {
 }
 
 fn render_body(ui: &mut Ui, state: &Model) {
-    match state.active {
-        ActiveTab::Observables => {}
-        ActiveTab::LaunchControl => {
-            render_launch_control(ui, state);
-        }
-    }
+    //    match state.mode {
+    // Mode::Observables => {}
+    // Mode::LaunchControl => {
+    //     render_launch_control(ui, state);
+    // }
+    //  }
 }
 
 fn render_status(ui: &mut Ui, model: &Model) {
     ui.horizontal(|ui| {
-        match model.state() {
-            crate::model::State::Failure => {
-                ui.spinner();
-            }
-            _ => {
-                ui.ctx().request_repaint();
+        if model.mode.is_failure() {
+            ui.spinner();
+        } else {
+            ui.ctx().request_repaint();
 
-                let elapsed = model.elapsed();
-                let mut plot = Plot::new("lines_demo")
-                    .height(ui.available_height())
-                    .width(ui.available_height())
-                    .show_axes([false, false])
-                    .show_background(false);
-                plot = plot.data_aspect(1.0);
-                plot.show(ui, |ui| {
-                    let steps = 16;
-                    ui.line(
-                        Line::new(PlotPoints::from_explicit_callback(
-                            move |x| 0.5 * (TAU * (x + elapsed.as_secs_f64())).sin(),
-                            0.0..=1.0,
-                            steps,
-                        ))
-                        .color(Color32::from_rgb(200, 100, 100))
-                        .style(LineStyle::Solid)
-                        .name("wave"),
-                    );
-                });
-            }
+            let elapsed = model.elapsed();
+            let mut plot = Plot::new("lines_demo")
+                .height(ui.available_height())
+                .width(ui.available_height())
+                .show_axes([false, false])
+                .show_background(false);
+            plot = plot.data_aspect(1.0);
+            plot.show(ui, |ui| {
+                let steps = 16;
+                ui.line(
+                    Line::new(PlotPoints::from_explicit_callback(
+                        move |x| 0.5 * (TAU * (x + elapsed.as_secs_f64())).sin(),
+                        0.0..=1.0,
+                        steps,
+                    ))
+                    .color(Color32::from_rgb(200, 100, 100))
+                    .style(LineStyle::Solid)
+                    .name("wave"),
+                );
+            });
         };
-        ui.label(match model.state() {
-            State::Start => "Start",
-            State::Failure => "Failure",
-            State::Reset => "Reset",
-            State::Idle => "Idle",
-        });
+        ui.label(model.mode().name());
     });
 }
 
