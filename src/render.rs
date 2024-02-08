@@ -1,11 +1,10 @@
 use std::f64::consts::TAU;
 
-use egui::epaint::{Shadow, WHITE_UV};
+use egui::epaint::Shadow;
 use egui::plot::{Line, LineStyle, Plot, PlotPoints};
 use egui::{Align2, Color32, FontId, Frame, Rect, Rounding, Sense, Stroke, Ui, Vec2};
-use log::debug;
 
-use crate::state::{ActiveTab, ControlArea, Model};
+use crate::model::{ActiveTab, ControlArea, Model, State};
 
 fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
     let lt = rect.left_top();
@@ -87,7 +86,7 @@ fn render_body(ui: &mut Ui, state: &Model) {
 fn render_status(ui: &mut Ui, model: &Model) {
     ui.horizontal(|ui| {
         match model.state() {
-            crate::state::State::Failure => {
+            crate::model::State::Failure => {
                 ui.spinner();
             }
             _ => {
@@ -116,10 +115,10 @@ fn render_status(ui: &mut Ui, model: &Model) {
             }
         };
         ui.label(match model.state() {
-            crate::state::State::Start => "Start",
-            crate::state::State::Failure => "Failure",
-            crate::state::State::Reset => "Reset",
-            crate::state::State::Idle => "Idle",
+            State::Start => "Start",
+            State::Failure => "Failure",
+            State::Reset => "Reset",
+            State::Idle => "Idle",
         });
     });
 }

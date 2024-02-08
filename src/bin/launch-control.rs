@@ -3,9 +3,9 @@ use std::{sync::Arc, time::Instant};
 use control_frontend::consort::Consort;
 use control_frontend::ebyte::E32Connection;
 use control_frontend::input::InputEvent;
+use control_frontend::model::Model;
 use control_frontend::render::render;
 use control_frontend::rqprotocol::Node;
-use control_frontend::state::Model;
 use control_frontend::timestep::TimeStep;
 
 use control_frontend::visualisation::setup_custom_fonts;
