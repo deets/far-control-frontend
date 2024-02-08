@@ -21,6 +21,7 @@ pub enum LaunchControlState {
     Failure,
     Reset,
     Idle,
+    EnterDigitHiA { hi_a: u8 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,6 +60,8 @@ pub trait StateProcessing {
     fn name(&self) -> &str;
 
     fn is_failure(&self) -> bool;
+
+    fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea);
 }
 
 impl StateProcessing for LaunchControlState {
@@ -76,6 +79,7 @@ impl StateProcessing for LaunchControlState {
                 _ => Self::State::Start,
             },
             Self::State::Idle => *self,
+            Self::EnterDigitHiA { .. } => *self,
         }
     }
 
@@ -85,6 +89,7 @@ impl StateProcessing for LaunchControlState {
             Self::State::Failure => "Failure",
             Self::State::Reset => "Reset",
             Self::State::Idle => "Idle",
+            Self::State::EnterDigitHiA { .. } => "Enter Hi A",
         }
     }
 
@@ -92,6 +97,41 @@ impl StateProcessing for LaunchControlState {
         match self {
             Self::State::Failure => true,
             _ => false,
+        }
+    }
+
+    fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea) {
+        match event {
+            InputEvent::Left(_) => match self {
+                LaunchControlState::EnterDigitHiA { hi_a } => (
+                    LaunchControlState::EnterDigitHiA {
+                        hi_a: (16 + hi_a + 1) % 16,
+                    },
+                    ControlArea::Details,
+                ),
+                _ => (*self, ControlArea::Details),
+            },
+            InputEvent::Right(_) => match self {
+                LaunchControlState::EnterDigitHiA { hi_a } => (
+                    LaunchControlState::EnterDigitHiA {
+                        hi_a: (hi_a + 1) % 16,
+                    },
+                    ControlArea::Details,
+                ),
+                _ => (*self, ControlArea::Details),
+            },
+            InputEvent::Back => (*self, ControlArea::Tabs),
+            InputEvent::Enter => match self {
+                LaunchControlState::Start => (*self, ControlArea::Tabs),
+                LaunchControlState::Failure => (*self, ControlArea::Tabs),
+                LaunchControlState::Reset => (*self, ControlArea::Tabs),
+                LaunchControlState::Idle => (
+                    LaunchControlState::EnterDigitHiA { hi_a: 12 },
+                    ControlArea::Details,
+                ),
+                LaunchControlState::EnterDigitHiA { .. } => (*self, ControlArea::Details),
+            },
+            _ => (*self, ControlArea::Details),
         }
     }
 }
@@ -116,6 +156,13 @@ impl StateProcessing for ObservablesState {
         match self {
             Self::State::Failure => true,
             _ => false,
+        }
+    }
+
+    fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea) {
+        match event {
+            InputEvent::Back => (*self, ControlArea::Tabs),
+            _ => (*self, ControlArea::Details),
         }
     }
 }
@@ -143,6 +190,19 @@ impl StateProcessing for Mode {
             Mode::LaunchControl(state) => state.is_failure(),
         }
     }
+
+    fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea) {
+        match self {
+            Mode::Observables(state) => {
+                let (state, ca) = state.process_event(event);
+                (Mode::Observables(state), ca)
+            }
+            Mode::LaunchControl(state) => {
+                let (state, ca) = state.process_event(event);
+                (Mode::LaunchControl(state), ca)
+            }
+        }
+    }
 }
 
 impl Default for Mode {
@@ -154,6 +214,18 @@ impl Default for Mode {
 impl Default for ControlArea {
     fn default() -> Self {
         Self::Tabs
+    }
+}
+
+impl LaunchControlState {
+    pub fn digits(&self) -> (u8, u8, u8, u8) {
+        match self {
+            LaunchControlState::Start => (0, 0, 0, 0),
+            LaunchControlState::Failure => (0, 0, 0, 0),
+            LaunchControlState::Reset => (0, 0, 0, 0),
+            LaunchControlState::Idle => (0, 0, 0, 0),
+            LaunchControlState::EnterDigitHiA { hi_a } => (*hi_a, 0, 0, 0),
+        }
     }
 }
 
@@ -174,22 +246,6 @@ impl<'a> Model<'a> {
 
     pub fn mode(&self) -> &Mode {
         &self.mode
-    }
-
-    pub fn hi_secret_a(&self) -> u8 {
-        0
-    }
-
-    pub fn lo_secret_a(&self) -> u8 {
-        1
-    }
-
-    pub fn hi_secret_b(&self) -> u8 {
-        2
-    }
-
-    pub fn lo_secret_b(&self) -> u8 {
-        11
     }
 
     pub fn drive(&mut self, now: Instant, module: &mut E32Connection) -> anyhow::Result<()> {
@@ -273,40 +329,33 @@ impl<'a> Model<'a> {
     }
 
     fn process_input_event(&mut self, event: &InputEvent) {
-        match self.control {
+        self.control = match self.control {
             ControlArea::Tabs => self.process_tabs_event(event),
             ControlArea::Details => self.process_details_event(event),
-        }
+        };
     }
 
-    fn process_tabs_event(&mut self, event: &InputEvent) {
+    fn process_tabs_event(&mut self, event: &InputEvent) -> ControlArea {
         match event {
             InputEvent::Left(..) => self.toggle_tab(),
             InputEvent::Right(..) => self.toggle_tab(),
-            InputEvent::Enter => self.enter(),
-            _ => {}
+            InputEvent::Enter => self.mode.process_event(event).1,
+            _ => self.control,
         }
     }
 
-    fn process_details_event(&mut self, event: &InputEvent) {
-        match event {
-            InputEvent::Back => self.exit(),
-            _ => {}
-        }
+    fn process_details_event(&mut self, event: &InputEvent) -> ControlArea {
+        debug!("process_detail_event: {:?}", event);
+        let (mode, ca) = self.mode.process_event(event);
+        self.mode = mode;
+        ca
     }
 
-    fn toggle_tab(&mut self) {
+    fn toggle_tab(&mut self) -> ControlArea {
         self.mode = match self.mode {
             Mode::LaunchControl(_) => Mode::Observables(ObservablesState::Start),
             Mode::Observables(_) => Mode::LaunchControl(LaunchControlState::Start),
-        }
-    }
-
-    fn enter(&mut self) {
-        self.control = ControlArea::Details;
-    }
-
-    fn exit(&mut self) {
-        self.control = ControlArea::Tabs;
+        };
+        ControlArea::Tabs
     }
 }

@@ -62,26 +62,27 @@ fn render_digit(ui: &mut Ui, digit: u8, active: bool) {
     );
 }
 
-fn render_launch_control(ui: &mut Ui, model: &Model) {
+fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
+    let (hi_a, lo_a, hi_b, lo_b) = state.digits();
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
-            render_digit(ui, model.hi_secret_a(), true);
-            render_digit(ui, model.lo_secret_a(), false);
+            render_digit(ui, hi_a, false);
+            render_digit(ui, lo_a, false);
         });
         ui.horizontal(|ui| {
-            render_digit(ui, model.hi_secret_b(), false);
-            render_digit(ui, model.lo_secret_b(), false);
+            render_digit(ui, hi_b, false);
+            render_digit(ui, lo_b, false);
         });
     });
 }
 
 fn render_body(ui: &mut Ui, state: &Model) {
-    //    match state.mode {
-    // Mode::Observables => {}
-    // Mode::LaunchControl => {
-    //     render_launch_control(ui, state);
-    // }
-    //  }
+    match state.mode {
+        Mode::Observables(state) => {}
+        Mode::LaunchControl(state) => {
+            render_launch_control(ui, &state);
+        }
+    }
 }
 
 fn render_status(ui: &mut Ui, model: &Model) {
