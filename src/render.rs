@@ -64,14 +64,15 @@ fn render_digit(ui: &mut Ui, digit: u8, active: bool) {
 
 fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
     let (hi_a, lo_a, hi_b, lo_b) = state.digits();
+    let (hi_a_hl, lo_a_hl, hi_b_hl, lo_b_hl) = state.highlights();
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
-            render_digit(ui, hi_a, false);
-            render_digit(ui, lo_a, false);
+            render_digit(ui, hi_a, hi_a_hl);
+            render_digit(ui, lo_a, lo_a_hl);
         });
         ui.horizontal(|ui| {
-            render_digit(ui, hi_b, false);
-            render_digit(ui, lo_b, false);
+            render_digit(ui, hi_b, hi_b_hl);
+            render_digit(ui, lo_b, lo_b_hl);
         });
     });
 }

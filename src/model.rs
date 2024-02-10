@@ -22,6 +22,8 @@ pub enum LaunchControlState {
     Reset,
     Idle,
     EnterDigitHiA { hi_a: u8 },
+    EnterDigitLoA { hi_a: u8, lo_a: u8 },
+    TransmitSecretA { hi_a: u8, lo_a: u8 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -62,6 +64,8 @@ pub trait StateProcessing {
     fn is_failure(&self) -> bool;
 
     fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea);
+
+    fn process_mode_change(&self, consort: &mut Consort);
 }
 
 impl StateProcessing for LaunchControlState {
@@ -80,6 +84,8 @@ impl StateProcessing for LaunchControlState {
             },
             Self::State::Idle => *self,
             Self::EnterDigitHiA { .. } => *self,
+            Self::EnterDigitLoA { .. } => *self,
+            Self::TransmitSecretA { .. } => *self,
         }
     }
 
@@ -90,6 +96,8 @@ impl StateProcessing for LaunchControlState {
             Self::State::Reset => "Reset",
             Self::State::Idle => "Idle",
             Self::State::EnterDigitHiA { .. } => "Enter Hi A",
+            Self::State::EnterDigitLoA { .. } => "Enter Lo A",
+            Self::State::TransmitSecretA { .. } => "Transmitting Secret A",
         }
     }
 
@@ -101,38 +109,25 @@ impl StateProcessing for LaunchControlState {
     }
 
     fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea) {
-        match event {
-            InputEvent::Left(_) => match self {
-                LaunchControlState::EnterDigitHiA { hi_a } => (
-                    LaunchControlState::EnterDigitHiA {
-                        hi_a: (16 + hi_a + 1) % 16,
-                    },
-                    ControlArea::Details,
-                ),
-                _ => (*self, ControlArea::Details),
-            },
-            InputEvent::Right(_) => match self {
-                LaunchControlState::EnterDigitHiA { hi_a } => (
-                    LaunchControlState::EnterDigitHiA {
-                        hi_a: (hi_a + 1) % 16,
-                    },
-                    ControlArea::Details,
-                ),
-                _ => (*self, ControlArea::Details),
-            },
-            InputEvent::Back => (*self, ControlArea::Tabs),
-            InputEvent::Enter => match self {
-                LaunchControlState::Start => (*self, ControlArea::Tabs),
-                LaunchControlState::Failure => (*self, ControlArea::Tabs),
-                LaunchControlState::Reset => (*self, ControlArea::Tabs),
-                LaunchControlState::Idle => (
-                    LaunchControlState::EnterDigitHiA { hi_a: 12 },
-                    ControlArea::Details,
-                ),
-                LaunchControlState::EnterDigitHiA { .. } => (*self, ControlArea::Details),
-            },
-            _ => (*self, ControlArea::Details),
+        match self {
+            LaunchControlState::Idle => self.process_event_idle(event),
+            LaunchControlState::EnterDigitHiA { hi_a } => {
+                self.process_event_enter_higit_hi_a(event, *hi_a)
+            }
+            LaunchControlState::EnterDigitLoA { hi_a, lo_a } => {
+                self.process_event_enter_higit_lo_a(event, *hi_a, *lo_a)
+            }
+            _ => self.process_event_nop(event),
         }
+    }
+
+    fn process_mode_change(&self, consort: &mut Consort) {
+        // match self {
+        //     LaunchControlState::TransmitSecretA { hi_a, lo_a } => {
+        //         consort.send_command(command, writer)
+        //     }
+        //     _ => {}
+        // }
     }
 }
 
@@ -165,6 +160,8 @@ impl StateProcessing for ObservablesState {
             _ => (*self, ControlArea::Details),
         }
     }
+
+    fn process_mode_change(&self, consort: &mut Consort) {}
 }
 
 impl StateProcessing for Mode {
@@ -203,6 +200,13 @@ impl StateProcessing for Mode {
             }
         }
     }
+
+    fn process_mode_change(&self, consort: &mut Consort) {
+        match self {
+            Mode::LaunchControl(state) => state.process_mode_change(consort),
+            Mode::Observables(state) => state.process_mode_change(consort),
+        }
+    }
 }
 
 impl Default for Mode {
@@ -225,6 +229,87 @@ impl LaunchControlState {
             LaunchControlState::Reset => (0, 0, 0, 0),
             LaunchControlState::Idle => (0, 0, 0, 0),
             LaunchControlState::EnterDigitHiA { hi_a } => (*hi_a, 0, 0, 0),
+            LaunchControlState::EnterDigitLoA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
+            LaunchControlState::TransmitSecretA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
+        }
+    }
+
+    pub fn highlights(&self) -> (bool, bool, bool, bool) {
+        match self {
+            LaunchControlState::EnterDigitHiA { .. } => (true, false, false, false),
+            LaunchControlState::EnterDigitLoA { .. } => (false, true, false, false),
+            _ => (false, false, false, false),
+        }
+    }
+
+    fn process_event_nop(&self, _event: &InputEvent) -> (Self, ControlArea) {
+        // States Start, Failure, Idle are not input dependent
+        (*self, ControlArea::Tabs)
+    }
+
+    fn process_event_idle(&self, event: &InputEvent) -> (Self, ControlArea) {
+        match event {
+            InputEvent::Enter => (
+                LaunchControlState::EnterDigitHiA { hi_a: 0 },
+                ControlArea::Details,
+            ),
+            _ => self.process_event_nop(event),
+        }
+    }
+
+    fn process_event_enter_higit_hi_a(&self, event: &InputEvent, digit: u8) -> (Self, ControlArea) {
+        match event {
+            InputEvent::Enter => (
+                LaunchControlState::EnterDigitLoA {
+                    hi_a: digit,
+                    lo_a: 0,
+                },
+                ControlArea::Details,
+            ),
+            InputEvent::Back => (LaunchControlState::Idle, ControlArea::Tabs),
+            InputEvent::Right(_) => (
+                LaunchControlState::EnterDigitHiA {
+                    hi_a: (digit + 1) % 16,
+                },
+                ControlArea::Details,
+            ),
+            InputEvent::Left(_) => (
+                LaunchControlState::EnterDigitHiA {
+                    hi_a: (16 + digit - 1) % 16,
+                },
+                ControlArea::Details,
+            ),
+            InputEvent::Send => self.process_event_nop(event),
+        }
+    }
+
+    fn process_event_enter_higit_lo_a(
+        &self,
+        event: &InputEvent,
+        hi_a: u8,
+        lo_a: u8,
+    ) -> (Self, ControlArea) {
+        match event {
+            InputEvent::Enter => (
+                LaunchControlState::TransmitSecretA { hi_a, lo_a },
+                ControlArea::Details,
+            ),
+            InputEvent::Back => (LaunchControlState::Idle, ControlArea::Tabs),
+            InputEvent::Right(_) => (
+                LaunchControlState::EnterDigitLoA {
+                    hi_a,
+                    lo_a: (lo_a + 1) % 16,
+                },
+                ControlArea::Details,
+            ),
+            InputEvent::Left(_) => (
+                LaunchControlState::EnterDigitLoA {
+                    hi_a,
+                    lo_a: (16 + lo_a - 1) % 16,
+                },
+                ControlArea::Details,
+            ),
+            InputEvent::Send => self.process_event_nop(event),
         }
     }
 }
@@ -346,9 +431,17 @@ impl<'a> Model<'a> {
 
     fn process_details_event(&mut self, event: &InputEvent) -> ControlArea {
         debug!("process_detail_event: {:?}", event);
-        let (mode, ca) = self.mode.process_event(event);
-        self.mode = mode;
-        ca
+        let (mode, control_area) = self.mode.process_event(event);
+        if self.mode != mode {
+            self.mode = mode;
+            self.process_mode_change();
+        }
+
+        control_area
+    }
+
+    fn process_mode_change(&mut self) {
+        self.mode.process_mode_change(&mut self.consort);
     }
 
     fn toggle_tab(&mut self) -> ControlArea {
