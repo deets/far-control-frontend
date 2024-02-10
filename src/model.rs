@@ -50,6 +50,7 @@ pub struct Model<'a> {
     pub mode: Mode,
     pub control: ControlArea,
     pub consort: Consort<'a>,
+    module: E32Connection,
     start: Instant,
     now: Instant,
 }
@@ -65,7 +66,7 @@ pub trait StateProcessing {
 
     fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea);
 
-    fn process_mode_change(&self, consort: &mut Consort);
+    fn process_mode_change(&self) -> Option<Command>;
 }
 
 impl StateProcessing for LaunchControlState {
@@ -117,17 +118,19 @@ impl StateProcessing for LaunchControlState {
             LaunchControlState::EnterDigitLoA { hi_a, lo_a } => {
                 self.process_event_enter_higit_lo_a(event, *hi_a, *lo_a)
             }
+            // only left through a response
+            LaunchControlState::TransmitSecretA { .. } => (*self, ControlArea::Details),
             _ => self.process_event_nop(event),
         }
     }
 
-    fn process_mode_change(&self, consort: &mut Consort) {
-        // match self {
-        //     LaunchControlState::TransmitSecretA { hi_a, lo_a } => {
-        //         consort.send_command(command, writer)
-        //     }
-        //     _ => {}
-        // }
+    fn process_mode_change(&self) -> Option<Command> {
+        match self {
+            LaunchControlState::TransmitSecretA { hi_a, lo_a } => {
+                Some(Command::LaunchSecretPartial(hi_a << 4 | lo_a))
+            }
+            _ => None,
+        }
     }
 }
 
@@ -161,7 +164,9 @@ impl StateProcessing for ObservablesState {
         }
     }
 
-    fn process_mode_change(&self, consort: &mut Consort) {}
+    fn process_mode_change(&self) -> Option<Command> {
+        None
+    }
 }
 
 impl StateProcessing for Mode {
@@ -201,10 +206,10 @@ impl StateProcessing for Mode {
         }
     }
 
-    fn process_mode_change(&self, consort: &mut Consort) {
+    fn process_mode_change(&self) -> Option<Command> {
         match self {
-            Mode::LaunchControl(state) => state.process_mode_change(consort),
-            Mode::Observables(state) => state.process_mode_change(consort),
+            Mode::LaunchControl(state) => state.process_mode_change(),
+            Mode::Observables(state) => state.process_mode_change(),
         }
     }
 }
@@ -315,13 +320,14 @@ impl LaunchControlState {
 }
 
 impl<'a> Model<'a> {
-    pub fn new(consort: Consort<'a>, now: Instant) -> Self {
+    pub fn new(consort: Consort<'a>, module: E32Connection, now: Instant) -> Self {
         Self {
             mode: Default::default(),
             control: Default::default(),
             consort,
             start: now,
             now,
+            module,
         }
     }
 
@@ -333,19 +339,19 @@ impl<'a> Model<'a> {
         &self.mode
     }
 
-    pub fn drive(&mut self, now: Instant, module: &mut E32Connection) -> anyhow::Result<()> {
+    pub fn drive(&mut self, now: Instant) -> anyhow::Result<()> {
         self.now = now;
         self.consort.update_time(now);
         // When we are in start state, start a reset cycle
         match self.mode {
             Mode::Observables(ObservablesState::Start) => {
                 debug!("Resetting because we are in Start");
-                self.reset(module);
+                self.reset();
                 return Ok(());
             }
             Mode::LaunchControl(LaunchControlState::Start) => {
                 debug!("Resetting because we are in Start");
-                self.reset(module);
+                self.reset();
                 return Ok(());
             }
             _ => {}
@@ -353,7 +359,7 @@ impl<'a> Model<'a> {
 
         let mut ringbuffer = AllocRingBuffer::new(MAX_BUFFER_SIZE);
         let mut timeout = false;
-        module.recv(|answer| match answer {
+        self.module.recv(|answer| match answer {
             crate::ebyte::Answers::Received(sentence) => {
                 for c in sentence {
                     ringbuffer.push(c);
@@ -365,7 +371,7 @@ impl<'a> Model<'a> {
         });
 
         if timeout {
-            self.reset(module);
+            self.reset();
         } else {
             while !ringbuffer.is_empty() {
                 match self.consort.feed(&mut ringbuffer) {
@@ -376,7 +382,7 @@ impl<'a> Model<'a> {
                     }
                     Err(err) => {
                         error!("Feeding consort error: {:?}", err);
-                        self.reset(module);
+                        self.reset();
                         break;
                     }
                 }
@@ -385,13 +391,13 @@ impl<'a> Model<'a> {
         Ok(())
     }
 
-    fn reset(&mut self, module: &mut E32Connection) {
+    fn reset(&mut self) {
         self.mode = match self.mode {
             Mode::Observables(_) => Mode::Observables(ObservablesState::Reset),
             Mode::LaunchControl(_) => Mode::LaunchControl(LaunchControlState::Reset),
         };
         self.consort.reset();
-        match self.consort.send_command(Command::Reset, module) {
+        match self.consort.send_command(Command::Reset, &mut self.module) {
             Ok(_) => {}
             Err(_) => {
                 error!("Resetting failed");
@@ -441,7 +447,15 @@ impl<'a> Model<'a> {
     }
 
     fn process_mode_change(&mut self) {
-        self.mode.process_mode_change(&mut self.consort);
+        if let Some(command) = self.mode.process_mode_change() {
+            if self
+                .consort
+                .send_command(command, &mut self.module)
+                .is_err()
+            {
+                self.reset();
+            }
+        }
     }
 
     fn toggle_tab(&mut self) -> ControlArea {

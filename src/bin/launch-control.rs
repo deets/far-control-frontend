@@ -66,14 +66,14 @@ async fn run() -> anyhow::Result<()> {
         &mut ringbuffer,
         start_time,
     );
-    let mut state = Model::new(consort, start_time);
+    let mut model = Model::new(consort, conn, start_time);
     let ctx = platform.context();
     //setup_custom_fonts(&ctx);
 
     'main: loop {
         // Update the time
         platform.update_time(start_time.elapsed().as_secs_f64());
-        state.drive(Instant::now(), &mut conn);
+        model.drive(Instant::now());
 
         let ctx = platform.context();
         let mut input_events = vec![];
@@ -85,7 +85,7 @@ async fn run() -> anyhow::Result<()> {
             .constrain(true)
             .movable(false)
             .show(&ctx, |ui| {
-                render(ui, &state);
+                render(ui, &model);
             });
 
         // Stop drawing the egui frame and get the full output
@@ -151,7 +151,7 @@ async fn run() -> anyhow::Result<()> {
             // Let the egui platform handle the event
             platform.handle_event(&event, &sdl, &video);
         }
-        state.process_input_events(&input_events);
+        model.process_input_events(&input_events);
     }
     Ok(())
 }
