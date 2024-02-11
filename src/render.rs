@@ -2,7 +2,7 @@ use std::f64::consts::TAU;
 
 use egui::epaint::Shadow;
 use egui::plot::{Line, LineStyle, Plot, PlotPoints};
-use egui::{Align2, Color32, FontId, Frame, Rect, Rounding, Sense, Stroke, Ui, Vec2};
+use egui::{Align2, Color32, FontId, Frame, ProgressBar, Rect, Rounding, Sense, Stroke, Ui, Vec2};
 
 use crate::model::{
     ControlArea, LaunchControlState, Mode, Model, ObservablesState, StateProcessing,
@@ -74,6 +74,9 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
             render_digit(ui, hi_b, hi_b_hl);
             render_digit(ui, lo_b, lo_b_hl);
         });
+        let pbar =
+            ProgressBar::new(state.prepare_ignition_progress() as f32 / 100.0).fill(Color32::RED);
+        ui.add(pbar);
     });
 }
 

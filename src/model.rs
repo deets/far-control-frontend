@@ -21,9 +21,41 @@ pub enum LaunchControlState {
     Failure,
     Reset,
     Idle,
-    EnterDigitHiA { hi_a: u8 },
-    EnterDigitLoA { hi_a: u8, lo_a: u8 },
-    TransmitSecretA { hi_a: u8, lo_a: u8 },
+    EnterDigitHiA {
+        hi_a: u8,
+    },
+    EnterDigitLoA {
+        hi_a: u8,
+        lo_a: u8,
+    },
+    TransmitSecretA {
+        hi_a: u8,
+        lo_a: u8,
+    },
+    EnterDigitHiB {
+        hi_a: u8,
+        lo_a: u8,
+        hi_b: u8,
+    },
+    EnterDigitLoB {
+        hi_a: u8,
+        lo_a: u8,
+        hi_b: u8,
+        lo_b: u8,
+    },
+    TransmitSecretAB {
+        hi_a: u8,
+        lo_a: u8,
+        hi_b: u8,
+        lo_b: u8,
+    },
+    PrepareIgnition {
+        hi_a: u8,
+        lo_a: u8,
+        hi_b: u8,
+        lo_b: u8,
+        progress: u8,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -67,6 +99,8 @@ pub trait StateProcessing {
     fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea);
 
     fn process_mode_change(&self) -> Option<Command>;
+
+    fn drive(&self) -> Self::State;
 }
 
 impl StateProcessing for LaunchControlState {
@@ -74,8 +108,6 @@ impl StateProcessing for LaunchControlState {
 
     fn process_response(&self, response: Response) -> Self::State {
         match self {
-            Self::State::Start => *self,
-            Self::State::Failure => *self,
             Self::State::Reset => match response {
                 Response::ResetAck => {
                     debug!("Acknowledged Reset, go to Idle");
@@ -84,9 +116,30 @@ impl StateProcessing for LaunchControlState {
                 _ => Self::State::Start,
             },
             Self::State::Idle => *self,
-            Self::EnterDigitHiA { .. } => *self,
-            Self::EnterDigitLoA { .. } => *self,
-            Self::TransmitSecretA { .. } => *self,
+            Self::TransmitSecretA { hi_a, lo_a } => match response {
+                Response::LaunchSecretPartialAck => Self::State::EnterDigitHiB {
+                    hi_a: *hi_a,
+                    lo_a: *lo_a,
+                    hi_b: 0,
+                },
+                _ => Self::State::Start,
+            },
+            Self::TransmitSecretAB {
+                hi_a,
+                lo_a,
+                hi_b,
+                lo_b,
+            } => match response {
+                Response::LaunchSecretFullAck => Self::State::PrepareIgnition {
+                    hi_a: *hi_a,
+                    lo_a: *lo_a,
+                    hi_b: *hi_b,
+                    lo_b: *lo_b,
+                    progress: 0,
+                },
+                _ => Self::State::Start,
+            },
+            _ => *self,
         }
     }
 
@@ -99,6 +152,10 @@ impl StateProcessing for LaunchControlState {
             Self::State::EnterDigitHiA { .. } => "Enter Hi A",
             Self::State::EnterDigitLoA { .. } => "Enter Lo A",
             Self::State::TransmitSecretA { .. } => "Transmitting Secret A",
+            Self::State::EnterDigitHiB { .. } => "Enter Hi B",
+            Self::State::EnterDigitLoB { .. } => "Enter Lo B",
+            Self::State::TransmitSecretAB { .. } => "Transmitting Secret AB",
+            Self::State::PrepareIgnition { .. } => "Prepare Ignition",
         }
     }
 
@@ -118,8 +175,26 @@ impl StateProcessing for LaunchControlState {
             LaunchControlState::EnterDigitLoA { hi_a, lo_a } => {
                 self.process_event_enter_higit_lo_a(event, *hi_a, *lo_a)
             }
+            LaunchControlState::EnterDigitHiB { hi_a, lo_a, hi_b } => {
+                self.process_event_enter_higit_hi_b(event, *hi_a, *lo_a, *hi_b)
+            }
+            LaunchControlState::EnterDigitLoB {
+                hi_a,
+                lo_a,
+                hi_b,
+                lo_b,
+            } => self.process_event_enter_higit_lo_b(event, *hi_a, *lo_a, *hi_b, *lo_b),
+            LaunchControlState::PrepareIgnition {
+                hi_a,
+                lo_a,
+                hi_b,
+                lo_b,
+                progress,
+            } => self.process_prepare_ignition(event, *hi_a, *lo_a, *hi_b, *lo_b, *progress),
             // only left through a response
             LaunchControlState::TransmitSecretA { .. } => (*self, ControlArea::Details),
+            // only left through a response
+            LaunchControlState::TransmitSecretAB { .. } => (*self, ControlArea::Details),
             _ => self.process_event_nop(event),
         }
     }
@@ -129,7 +204,39 @@ impl StateProcessing for LaunchControlState {
             LaunchControlState::TransmitSecretA { hi_a, lo_a } => {
                 Some(Command::LaunchSecretPartial(hi_a << 4 | lo_a))
             }
+            LaunchControlState::TransmitSecretAB {
+                hi_a,
+                lo_a,
+                hi_b,
+                lo_b,
+            } => Some(Command::LaunchSecretFull(
+                hi_a << 4 | lo_a,
+                hi_b << 4 | lo_b,
+            )),
             _ => None,
+        }
+    }
+
+    fn drive(&self) -> Self {
+        match self {
+            LaunchControlState::PrepareIgnition {
+                hi_a,
+                lo_a,
+                hi_b,
+                lo_b,
+                progress,
+            } => LaunchControlState::PrepareIgnition {
+                hi_a: *hi_a,
+                lo_a: *lo_a,
+                hi_b: *hi_b,
+                lo_b: *lo_b,
+                progress: if *progress < 100 {
+                    std::cmp::max(*progress, 1) - 1
+                } else {
+                    100
+                },
+            },
+            _ => *self,
         }
     }
 }
@@ -137,7 +244,7 @@ impl StateProcessing for LaunchControlState {
 impl StateProcessing for ObservablesState {
     type State = ObservablesState;
 
-    fn process_response(&self, response: Response) -> Self::State {
+    fn process_response(&self, _response: Response) -> Self::State {
         *self
     }
 
@@ -166,6 +273,10 @@ impl StateProcessing for ObservablesState {
 
     fn process_mode_change(&self) -> Option<Command> {
         None
+    }
+
+    fn drive(&self) -> Self {
+        *self
     }
 }
 
@@ -212,6 +323,13 @@ impl StateProcessing for Mode {
             Mode::Observables(state) => state.process_mode_change(),
         }
     }
+
+    fn drive(&self) -> Self {
+        match self {
+            Mode::LaunchControl(state) => Mode::LaunchControl(state.drive()),
+            Mode::Observables(state) => Mode::Observables(state.drive()),
+        }
+    }
 }
 
 impl Default for Mode {
@@ -236,6 +354,26 @@ impl LaunchControlState {
             LaunchControlState::EnterDigitHiA { hi_a } => (*hi_a, 0, 0, 0),
             LaunchControlState::EnterDigitLoA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
             LaunchControlState::TransmitSecretA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
+            LaunchControlState::EnterDigitHiB { hi_a, lo_a, hi_b } => (*hi_a, *lo_a, *hi_b, 0),
+            LaunchControlState::EnterDigitLoB {
+                hi_a,
+                lo_a,
+                hi_b,
+                lo_b,
+            } => (*hi_a, *lo_a, *hi_b, *lo_b),
+            LaunchControlState::TransmitSecretAB {
+                hi_a,
+                lo_a,
+                hi_b,
+                lo_b,
+            } => (*hi_a, *lo_a, *hi_b, *lo_b),
+            LaunchControlState::PrepareIgnition {
+                hi_a,
+                lo_a,
+                hi_b,
+                lo_b,
+                ..
+            } => (*hi_a, *lo_a, *hi_b, *lo_b),
         }
     }
 
@@ -243,7 +381,17 @@ impl LaunchControlState {
         match self {
             LaunchControlState::EnterDigitHiA { .. } => (true, false, false, false),
             LaunchControlState::EnterDigitLoA { .. } => (false, true, false, false),
+            LaunchControlState::EnterDigitHiB { .. } => (false, false, true, false),
+            LaunchControlState::EnterDigitLoB { .. } => (false, false, false, true),
             _ => (false, false, false, false),
+        }
+    }
+
+    pub fn prepare_ignition_progress(&self) -> u8 {
+        if let LaunchControlState::PrepareIgnition { progress, .. } = self {
+            *progress
+        } else {
+            0
         }
     }
 
@@ -317,6 +465,119 @@ impl LaunchControlState {
             InputEvent::Send => self.process_event_nop(event),
         }
     }
+
+    fn process_event_enter_higit_hi_b(
+        &self,
+        event: &InputEvent,
+        hi_a: u8,
+        lo_a: u8,
+        hi_b: u8,
+    ) -> (Self, ControlArea) {
+        match event {
+            InputEvent::Enter => (
+                LaunchControlState::EnterDigitLoB {
+                    hi_a,
+                    lo_a,
+                    hi_b,
+                    lo_b: 0,
+                },
+                ControlArea::Details,
+            ),
+            InputEvent::Back => (LaunchControlState::Idle, ControlArea::Tabs),
+            InputEvent::Right(_) => (
+                LaunchControlState::EnterDigitHiB {
+                    hi_a,
+                    lo_a,
+                    hi_b: (hi_b + 1) % 16,
+                },
+                ControlArea::Details,
+            ),
+            InputEvent::Left(_) => (
+                LaunchControlState::EnterDigitHiB {
+                    hi_a,
+                    lo_a,
+                    hi_b: (16 + hi_b - 1) % 16,
+                },
+                ControlArea::Details,
+            ),
+            InputEvent::Send => self.process_event_nop(event),
+        }
+    }
+
+    fn process_event_enter_higit_lo_b(
+        &self,
+        event: &InputEvent,
+        hi_a: u8,
+        lo_a: u8,
+        hi_b: u8,
+        lo_b: u8,
+    ) -> (Self, ControlArea) {
+        match event {
+            InputEvent::Enter => (
+                LaunchControlState::TransmitSecretAB {
+                    hi_a,
+                    lo_a,
+                    hi_b,
+                    lo_b,
+                },
+                ControlArea::Details,
+            ),
+            InputEvent::Back => (LaunchControlState::Idle, ControlArea::Tabs),
+            InputEvent::Right(_) => (
+                LaunchControlState::EnterDigitLoB {
+                    hi_a,
+                    lo_a,
+                    hi_b,
+                    lo_b: (lo_b + 1) % 16,
+                },
+                ControlArea::Details,
+            ),
+            InputEvent::Left(_) => (
+                LaunchControlState::EnterDigitLoB {
+                    hi_a,
+                    lo_a,
+                    hi_b,
+                    lo_b: (16 + lo_b - 1) % 16,
+                },
+                ControlArea::Details,
+            ),
+            InputEvent::Send => self.process_event_nop(event),
+        }
+    }
+
+    fn process_prepare_ignition(
+        &self,
+        event: &InputEvent,
+        hi_a: u8,
+        lo_a: u8,
+        hi_b: u8,
+        lo_b: u8,
+        progress: u8,
+    ) -> (Self, ControlArea) {
+        match event {
+            InputEvent::Back => (LaunchControlState::Idle, ControlArea::Tabs),
+            InputEvent::Right(_) => (
+                LaunchControlState::PrepareIgnition {
+                    hi_a,
+                    lo_a,
+                    hi_b,
+                    lo_b,
+                    progress: std::cmp::min(progress + 3, 100),
+                },
+                ControlArea::Details,
+            ),
+            _ => (
+                LaunchControlState::PrepareIgnition {
+                    hi_a,
+                    lo_a,
+                    hi_b,
+                    lo_b,
+                    progress,
+                },
+                ControlArea::Details,
+            ),
+        }
+    }
 }
 
 impl<'a> Model<'a> {
@@ -388,6 +649,7 @@ impl<'a> Model<'a> {
                 }
             }
         }
+        self.mode = self.mode.drive();
         Ok(())
     }
 
