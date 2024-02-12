@@ -620,6 +620,7 @@ impl<'a> Model<'a> {
 
         let mut ringbuffer = AllocRingBuffer::new(MAX_BUFFER_SIZE);
         let mut timeout = false;
+        let mut error = false;
         self.module.recv(|answer| match answer {
             crate::ebyte::Answers::Received(sentence) => {
                 for c in sentence {
@@ -629,10 +630,15 @@ impl<'a> Model<'a> {
             crate::ebyte::Answers::Timeout => {
                 timeout = true;
             }
+            crate::ebyte::Answers::ConnectionError => {
+                error = true;
+            }
         });
 
         if timeout {
             self.reset();
+        } else if (error) {
+            self.mode = Mode::LaunchControl(LaunchControlState::Failure);
         } else {
             while !ringbuffer.is_empty() {
                 match self.consort.feed(&mut ringbuffer) {

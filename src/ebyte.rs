@@ -38,6 +38,7 @@ enum Commands {
 pub enum Answers {
     Received(Vec<u8>),
     Timeout,
+    ConnectionError,
 }
 
 struct E32Worker<'a> {
@@ -56,8 +57,11 @@ impl E32Worker<'_> {
                         break;
                     }
                     Commands::Open(port) => {
-                        module =
-                            Some(create(&port, default_parameters()).expect("Can't create port"));
+                        if let Ok(m) = create(&port, default_parameters()) {
+                            module = Some(m)
+                        } else {
+                            error!("Can't open port");
+                        }
                     }
                     Commands::Send(data) => match &mut module {
                         Some(module) => {
@@ -66,6 +70,11 @@ impl E32Worker<'_> {
                         }
                         None => {
                             error!("No open E32 connection");
+                            // To prevent spinning and log spam, wait a bit
+                            std::thread::sleep(Duration::from_millis(500));
+                            self.response_sender
+                                .send(Answers::ConnectionError)
+                                .expect("cc works");
                         }
                     },
                 },
