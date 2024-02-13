@@ -2,7 +2,10 @@ use std::f64::consts::TAU;
 
 use egui::epaint::Shadow;
 use egui::plot::{Line, LineStyle, Plot, PlotPoints};
-use egui::{Align2, Color32, FontId, Frame, ProgressBar, Rect, Rounding, Sense, Stroke, Ui, Vec2};
+use egui::{
+    vec2, Align2, Color32, FontId, Frame, ProgressBar, Rect, Rounding, Sense, Stroke, Ui, Vec2,
+};
+use emath::{pos2, Pos2};
 
 use crate::model::{
     ControlArea, LaunchControlState, Mode, Model, ObservablesState, StateProcessing,
@@ -89,33 +92,55 @@ fn render_body(ui: &mut Ui, state: &Model) {
     }
 }
 
+fn render_alive(ui: &mut Ui) {
+    let color = if ui.visuals().dark_mode {
+        Color32::from_additive_luminance(196)
+    } else {
+        Color32::from_black_alpha(240)
+    };
+
+    Frame::canvas(ui.style()).show(ui, |ui| {
+        ui.ctx().request_repaint();
+        let time = ui.input(|i| i.time);
+
+        let desired_size = ui.spacing().interact_size.y * vec2(1.0, 1.0);
+        let (_id, rect) = ui.allocate_space(desired_size);
+
+        let to_screen = emath::RectTransform::from_to(
+            emath::Rect::from_x_y_ranges(0.0..=1.0, -1.0..=1.0),
+            rect,
+        );
+
+        let mut shapes = vec![];
+
+        for &mode in &[2, 3, 5] {
+            let mode = mode as f64;
+            let n = 10;
+            let speed = 1.5;
+
+            let points: Vec<Pos2> = (0..=n)
+                .map(|i| {
+                    let t = i as f64 / (n as f64);
+                    let amp = (time * speed * mode).sin() / mode;
+                    let y = amp * (t * std::f64::consts::TAU / 2.0 * mode).sin();
+                    to_screen * pos2(t as f32, y as f32)
+                })
+                .collect();
+
+            let thickness = 1.0 as f32;
+            shapes.push(epaint::Shape::line(points, Stroke::new(thickness, color)));
+        }
+
+        ui.painter().extend(shapes);
+    });
+}
+
 fn render_status(ui: &mut Ui, model: &Model) {
     ui.horizontal(|ui| {
         if model.mode.is_failure() {
             ui.spinner();
         } else {
-            ui.ctx().request_repaint();
-
-            let elapsed = model.elapsed();
-            let mut plot = Plot::new("lines_demo")
-                .height(ui.available_height())
-                .width(ui.available_height())
-                .show_axes([false, false])
-                .show_background(false);
-            plot = plot.data_aspect(1.0);
-            plot.show(ui, |ui| {
-                let steps = 16;
-                ui.line(
-                    Line::new(PlotPoints::from_explicit_callback(
-                        move |x| 0.5 * (TAU * (x + elapsed.as_secs_f64())).sin(),
-                        0.0..=1.0,
-                        steps,
-                    ))
-                    .color(Color32::from_rgb(200, 100, 100))
-                    .style(LineStyle::Solid)
-                    .name("wave"),
-                );
-            });
+            render_alive(ui);
         };
         ui.label(model.mode().name());
     });

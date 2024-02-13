@@ -11,6 +11,8 @@ egui = { version="0.21" }#, path="/Users/deets/software/vc/egui/crates/egui" }
 egui_sdl2_platform = { version="0.2.2", path="./modules/egui_sdl2_platform" }
 gl = "*"
 egui_glow = "0.21"
+emath = "0.21"
+epaint = "0.21"
 #egui_glow = { version="0.21", path="/Users/deets/software/vc/egui/crates/egui_glow" }
 pollster = "0.2"
 anyhow = "1.0"
