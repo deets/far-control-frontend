@@ -1,26 +1,19 @@
-use std::f64::consts::TAU;
-
 use egui::epaint::Shadow;
-use egui::plot::{Line, LineStyle, Plot, PlotPoints};
-use egui::{
-    vec2, Align2, Color32, FontId, Frame, ProgressBar, Rect, Rounding, Sense, Stroke, Ui, Vec2,
-};
+use egui::{vec2, Align2, Color32, FontId, Frame, ProgressBar, Rounding, Sense, Stroke, Ui};
 use emath::{pos2, Pos2};
 
-use crate::model::{
-    ControlArea, LaunchControlState, Mode, Model, ObservablesState, StateProcessing,
-};
+use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing};
 
-fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
-    let lt = rect.left_top();
-    let h = rect.height();
-    let left_width = rect.width() * split;
-    let right_width = rect.width() - left_width;
-    let mt = lt + Vec2::new(left_width, 0.0);
-    let left = Rect::from_min_size(lt, [left_width, h].into());
-    let right = Rect::from_min_size(mt, [right_width, h].into());
-    (left, right)
-}
+// fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
+//     let lt = rect.left_top();
+//     let h = rect.height();
+//     let left_width = rect.width() * split;
+//     let right_width = rect.width() - left_width;
+//     let mt = lt + Vec2::new(left_width, 0.0);
+//     let left = Rect::from_min_size(lt, [left_width, h].into());
+//     let right = Rect::from_min_size(mt, [right_width, h].into());
+//     (left, right)
+// }
 
 fn render_header(ui: &mut Ui, model: &Model) {
     ui.horizontal(|ui| {
@@ -85,7 +78,7 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
 
 fn render_body(ui: &mut Ui, state: &Model) {
     match state.mode {
-        Mode::Observables(state) => {}
+        Mode::Observables(_state) => {}
         Mode::LaunchControl(state) => {
             render_launch_control(ui, &state);
         }

@@ -1,12 +1,16 @@
 use std::{sync::Arc, time::Instant};
 
 use control_frontend::consort::Consort;
-use control_frontend::ebyte::E32Connection;
 use control_frontend::input::InputEvent;
 use control_frontend::model::Model;
 use control_frontend::render::render;
 use control_frontend::rqprotocol::Node;
 use control_frontend::timestep::TimeStep;
+
+#[cfg(feature = "e32")]
+use control_frontend::ebyte::E32Connection;
+#[cfg(not(feature = "e32"))]
+use control_frontend::ebytemock::E32Connection;
 
 use control_frontend::visualisation::setup_custom_fonts;
 use egui_glow::glow::HasContext;

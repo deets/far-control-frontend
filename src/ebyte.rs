@@ -14,18 +14,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::rqparser::SentenceParser;
+use crate::{
+    connection::{Answers, Connection},
+    rqparser::SentenceParser,
+};
 
 const ANSWER_TIMEOUT: Duration = Duration::from_millis(100);
 
 pub type E32Module = Ebyte<Serial, CtsAux, M0Dtr, M1Rts, StandardDelay, Normal>;
-
-pub struct E32Connection {
-    worker: Option<JoinHandle<()>>,
-    command_sender: Sender<Commands>,
-    response_receiver: Receiver<Answers>,
-    busy: bool,
-}
 
 #[derive(Debug, PartialEq)]
 enum Commands {
@@ -34,17 +30,73 @@ enum Commands {
     Quit,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Answers {
-    Received(Vec<u8>),
-    Timeout,
-    ConnectionError,
-}
-
 struct E32Worker<'a> {
     command_receiver: Receiver<Commands>,
     response_sender: Sender<Answers>,
     sentence_parser: SentenceParser<'a, AllocRingBuffer<u8>>,
+}
+
+pub struct E32Connection {
+    worker: Option<JoinHandle<()>>,
+    command_sender: Sender<Commands>,
+    response_receiver: Receiver<Answers>,
+    busy: bool,
+}
+
+impl E32Connection {
+    pub fn new(port: &str) -> anyhow::Result<E32Connection> {
+        let port = port.to_string();
+        let (command_sender, command_receiver) = unbounded::<Commands>();
+        let (response_sender, response_receiver) = unbounded::<Answers>();
+        let handle = thread::spawn(move || {
+            let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
+            let sentence_parser = SentenceParser::new(&mut ringbuffer);
+            let mut worker = E32Worker {
+                command_receiver,
+                response_sender,
+                sentence_parser,
+            };
+            worker.work();
+        });
+        command_sender.send(Commands::Open(port))?;
+        Ok(E32Connection {
+            worker: Some(handle),
+            command_sender,
+            response_receiver,
+            busy: false,
+        })
+    }
+
+    pub fn raw_module(port: &str) -> anyhow::Result<E32Module> {
+        Ok(create(&port, default_parameters())?)
+    }
+
+    fn quit(&mut self) {
+        self.command_sender.send(Commands::Quit).expect("crossbeam");
+        // See https://stackoverflow.com/questions/57670145/how-to-store-joinhandle-of-a-thread-to-close-it-later
+        self.worker.take().map(JoinHandle::join);
+    }
+}
+
+impl Connection for E32Connection {
+    fn recv(&mut self, callback: impl FnOnce(Answers)) {
+        match self.response_receiver.try_recv() {
+            Ok(answer) => {
+                self.busy = false;
+                callback(answer);
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                panic!("Crossbeam channel to ebyte module disconnected!");
+            }
+        }
+    }
+}
+
+impl Drop for E32Connection {
+    fn drop(&mut self) {
+        self.quit();
+    }
 }
 
 impl E32Worker<'_> {
@@ -131,60 +183,6 @@ impl E32Worker<'_> {
         self.response_sender
             .send(Answers::Timeout)
             .expect("can't ack data");
-    }
-}
-
-impl E32Connection {
-    pub fn new(port: &str) -> anyhow::Result<E32Connection> {
-        let port = port.to_string();
-        let (command_sender, command_receiver) = unbounded::<Commands>();
-        let (response_sender, response_receiver) = unbounded::<Answers>();
-        let handle = thread::spawn(move || {
-            let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-            let sentence_parser = SentenceParser::new(&mut ringbuffer);
-            let mut worker = E32Worker {
-                command_receiver,
-                response_sender,
-                sentence_parser,
-            };
-            worker.work();
-        });
-        command_sender.send(Commands::Open(port))?;
-        Ok(E32Connection {
-            worker: Some(handle),
-            command_sender,
-            response_receiver,
-            busy: false,
-        })
-    }
-
-    pub fn recv(&mut self, callback: impl FnOnce(Answers)) {
-        match self.response_receiver.try_recv() {
-            Ok(answer) => {
-                self.busy = false;
-                callback(answer);
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                panic!("Crossbeam channel to ebyte module disconnected!");
-            }
-        }
-    }
-
-    pub fn raw_module(port: &str) -> anyhow::Result<E32Module> {
-        Ok(create(&port, default_parameters())?)
-    }
-
-    fn quit(&mut self) {
-        self.command_sender.send(Commands::Quit).expect("crossbeam");
-        // See https://stackoverflow.com/questions/57670145/how-to-store-joinhandle-of-a-thread-to-close-it-later
-        self.worker.take().map(JoinHandle::join);
-    }
-}
-
-impl Drop for E32Connection {
-    fn drop(&mut self) {
-        self.quit();
     }
 }
 

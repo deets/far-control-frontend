@@ -8,12 +8,18 @@ use std::time::Instant;
 use std::time::Duration;
 
 use crate::{
+    connection::{Answers, Connection},
     consort::Consort,
-    ebyte::E32Connection,
     input::InputEvent,
     rqparser::MAX_BUFFER_SIZE,
     rqprotocol::{Command, Response},
 };
+
+#[cfg(feature = "e32")]
+type E32Connection = crate::ebyte::E32Connection;
+
+#[cfg(not(feature = "e32"))]
+type E32Connection = crate::ebytemock::E32Connection;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LaunchControlState {
@@ -622,22 +628,22 @@ impl<'a> Model<'a> {
         let mut timeout = false;
         let mut error = false;
         self.module.recv(|answer| match answer {
-            crate::ebyte::Answers::Received(sentence) => {
+            Answers::Received(sentence) => {
                 for c in sentence {
                     ringbuffer.push(c);
                 }
             }
-            crate::ebyte::Answers::Timeout => {
+            Answers::Timeout => {
                 timeout = true;
             }
-            crate::ebyte::Answers::ConnectionError => {
+            Answers::ConnectionError => {
                 error = true;
             }
         });
 
         if timeout {
             self.reset();
-        } else if (error) {
+        } else if error {
             self.mode = Mode::LaunchControl(LaunchControlState::Failure);
         } else {
             while !ringbuffer.is_empty() {

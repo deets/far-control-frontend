@@ -1,17 +1,21 @@
 use std::time::Duration;
 
 use control_frontend::{
-    ebyte::E32Connection,
     rqparser::{verify_nmea_format, SentenceParser, MAX_BUFFER_SIZE},
     rqprotocol::Transaction,
 };
 
+#[cfg(feature = "e32")]
 use embedded_hal::serial::{Read, Write};
+#[cfg(feature = "e32")]
+type E32Connection = control_frontend::ebyte::E32Connection;
+
 use log::{error, info};
 use nb::block;
 
 const DEVICE: &str = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A100X7AI-if00-port0";
 
+#[cfg(feature = "e32")]
 fn main() -> anyhow::Result<()> {
     simple_logger::init_with_env().unwrap();
     info!("Opening E32 {}", DEVICE);
@@ -46,5 +50,10 @@ fn main() -> anyhow::Result<()> {
             },
         }
     }
+    Ok(())
+}
+
+#[cfg(not(feature = "e32"))]
+fn main() -> anyhow::Result<()> {
     Ok(())
 }

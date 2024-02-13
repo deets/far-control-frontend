@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 default-run = "launch-control"
 
+[features]
+e32 = ["dep:ebyte-e32", "dep:ebyte-e32-ftdi"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -16,8 +19,8 @@ epaint = "0.21"
 #egui_glow = { version="0.21", path="/Users/deets/software/vc/egui/crates/egui_glow" }
 pollster = "0.2"
 anyhow = "1.0"
-ebyte-e32 = { version = "0.9.0", features = ["value_enum"] }
-ebyte-e32-ftdi = { path = "./modules/ebyte-e32-ftdi" }
+ebyte-e32 = { version = "0.9.0", features = ["value_enum"], optional=true }
+ebyte-e32-ftdi = { path = "./modules/ebyte-e32-ftdi", optional=true }
 embedded-hal = "0.2.7"
 serial = "0.4.0"
 serial-core = "0.4.0"

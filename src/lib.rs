@@ -1,6 +1,10 @@
 #![feature(assert_matches, slice_pattern, exclusive_range_pattern)]
+pub mod connection;
 pub mod consort;
+#[cfg(feature = "e32")]
 pub mod ebyte;
+#[cfg(not(feature = "e32"))]
+pub mod ebytemock;
 pub mod ignition_statemachine;
 pub mod input;
 pub mod layout;
