@@ -4,7 +4,6 @@ use std::{
 };
 
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
-use log::debug;
 
 use crate::{
     connection::{Answers, Connection},
@@ -101,7 +100,6 @@ impl MockWorker {
     }
 
     fn process_data(&mut self, data: &Vec<u8>) {
-        debug!("process data: {:?}", data);
         match command_parser(&data[1..data.len() - 4]) {
             Ok((.., transaction)) => {
                 std::thread::sleep(Duration::from_millis(2000));

@@ -84,11 +84,14 @@ pub enum ControlArea {
     Details,
 }
 
-pub struct Model<'a> {
+pub struct Model<'a, C>
+where
+    C: Connection,
+{
     pub mode: Mode,
     pub control: ControlArea,
     pub consort: Consort<'a>,
-    module: E32Connection,
+    module: C,
     start: Instant,
     now: Instant,
 }
@@ -586,8 +589,8 @@ impl LaunchControlState {
     }
 }
 
-impl<'a> Model<'a> {
-    pub fn new(consort: Consort<'a>, module: E32Connection, now: Instant) -> Self {
+impl<'a, C: Connection> Model<'a, C> {
+    pub fn new(consort: Consort<'a>, module: C, now: Instant) -> Self {
         Self {
             mode: Default::default(),
             control: Default::default(),
@@ -704,7 +707,11 @@ impl<'a> Model<'a> {
         match event {
             InputEvent::Left(..) => self.toggle_tab(),
             InputEvent::Right(..) => self.toggle_tab(),
-            InputEvent::Enter => self.mode.process_event(event).1,
+            InputEvent::Enter => {
+                let (mode, control) = self.mode.process_event(event);
+                self.mode = mode;
+                control
+            }
             _ => self.control,
         }
     }
@@ -738,5 +745,65 @@ impl<'a> Model<'a> {
             Mode::Observables(_) => Mode::LaunchControl(LaunchControlState::Start),
         };
         ControlArea::Tabs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::rqparser::command_parser;
+    use crate::rqprotocol::Node;
+    use std::assert_matches;
+    use std::assert_matches::assert_matches;
+
+    use super::*;
+
+    struct MockConnection {
+        responses: Vec<Vec<u8>>,
+    }
+
+    impl Connection for MockConnection {
+        fn recv(&mut self, callback: impl FnOnce(Answers)) {
+            if self.responses.len() > 0 {
+                let response = self.responses.pop().unwrap();
+                callback(Answers::Received(response));
+            }
+        }
+    }
+
+    impl std::io::Write for MockConnection {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            match command_parser(&buf[1..buf.len() - 4]) {
+                Ok((.., transaction)) => {
+                    let mut buffer = [0; MAX_BUFFER_SIZE];
+                    let response = transaction.acknowledge(&mut buffer).unwrap();
+                    self.responses.push(response.into());
+                    Ok(buf.len())
+                }
+                Err(_) => unreachable!("We should never receive wrong commands"),
+            }
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_full_fsm_progression() {
+        let mut buffer = AllocRingBuffer::new(256);
+        let connection = MockConnection { responses: vec![] };
+        let now = Instant::now();
+        let consort = Consort::new(Node::LaunchControl, Node::RedQueen(b'A'), &mut buffer, now);
+        let mut model = Model::new(consort, connection, now);
+        assert_matches!(model.mode(), Mode::LaunchControl(_));
+        assert_eq!(model.control, ControlArea::Tabs);
+        // Put us into reset
+        model.drive(Instant::now()).unwrap();
+        // progress to idle
+        model.drive(Instant::now()).unwrap();
+        assert_matches!(model.mode(), Mode::LaunchControl(LaunchControlState::Idle));
+        model.process_input_event(&InputEvent::Enter);
+        assert_eq!(model.control, ControlArea::Details);
+        assert_matches!(model.mode(), Mode::LaunchControl(_));
     }
 }

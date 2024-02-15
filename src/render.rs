@@ -1,7 +1,10 @@
 use egui::epaint::Shadow;
-use egui::{vec2, Align2, Color32, FontId, Frame, ProgressBar, Rounding, Sense, Stroke, Ui};
+use egui::{
+    vec2, Align2, Color32, FontId, Frame, ProgressBar, RichText, Rounding, Sense, Stroke, Ui,
+};
 use emath::{pos2, Pos2};
 
+use crate::connection::Connection;
 use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing};
 
 // fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
@@ -15,7 +18,7 @@ use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing
 //     (left, right)
 // }
 
-fn render_header(ui: &mut Ui, model: &Model) {
+fn render_header<C: Connection>(ui: &mut Ui, model: &Model<C>) {
     ui.horizontal(|ui| {
         let is_observables = match model.mode() {
             Mode::Observables(_) => true,
@@ -63,10 +66,20 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
     let (hi_a_hl, lo_a_hl, hi_b_hl, lo_b_hl) = state.highlights();
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
+            egui::SidePanel::left("secret a left")
+                .exact_width(ui.available_width() / 3.0)
+                .show_inside(ui, |ui| {
+                    ui.label(RichText::new("Enter Secret A").heading());
+                });
             render_digit(ui, hi_a, hi_a_hl);
             render_digit(ui, lo_a, lo_a_hl);
         });
         ui.horizontal(|ui| {
+            egui::SidePanel::left("secret b left")
+                .exact_width(ui.available_width() / 3.0)
+                .show_inside(ui, |ui| {
+                    ui.label(RichText::new("Enter Secret B").heading());
+                });
             render_digit(ui, hi_b, hi_b_hl);
             render_digit(ui, lo_b, lo_b_hl);
         });
@@ -76,7 +89,7 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
     });
 }
 
-fn render_body(ui: &mut Ui, state: &Model) {
+fn render_body<C: Connection>(ui: &mut Ui, state: &Model<C>) {
     match state.mode {
         Mode::Observables(_state) => {}
         Mode::LaunchControl(state) => {
@@ -128,7 +141,7 @@ fn render_alive(ui: &mut Ui) {
     });
 }
 
-fn render_status(ui: &mut Ui, model: &Model) {
+fn render_status<C: Connection>(ui: &mut Ui, model: &Model<C>) {
     ui.horizontal(|ui| {
         if model.mode.is_failure() {
             ui.spinner();
@@ -172,7 +185,10 @@ fn frame(active: bool) -> Frame {
     }
 }
 
-pub fn render(ui: &mut Ui, model: &Model) {
+pub fn render<C: Connection>(ui: &mut Ui, model: &Model<C>)
+where
+    C: Connection,
+{
     let tabs_active = match model.control {
         ControlArea::Tabs => true,
         ControlArea::Details => false,
