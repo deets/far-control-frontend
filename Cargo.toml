@@ -1,5 +1,6 @@
 [package]
 name = "control-frontend"
+description = "Launch Control via E32 LoRa Module"
 version = "0.1.0"
 edition = "2021"
 default-run = "launch-control"
@@ -37,4 +38,9 @@ rust-fsm = { version = "0.6", features = ["dsl"] }
 
 [dev-dependencies]
 mock_instant = "0.3.1"
+
+
+[package.metadata.bundle.bin.launch-control]
+name = "Launch Control"
+identifier = "de.alternative-raumfahrt.LaunchControl"
 
