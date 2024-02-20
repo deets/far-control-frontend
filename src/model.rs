@@ -428,7 +428,7 @@ impl LaunchControlState {
                 },
                 ControlArea::Details,
             ),
-            InputEvent::Back => (LaunchControlState::Idle, ControlArea::Tabs),
+            InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
             InputEvent::Right(_) => (
                 LaunchControlState::EnterDigitHiA {
                     hi_a: (digit + 1) % 16,
@@ -456,7 +456,11 @@ impl LaunchControlState {
                 LaunchControlState::TransmitSecretA { hi_a, lo_a },
                 ControlArea::Details,
             ),
-            InputEvent::Back => (LaunchControlState::Idle, ControlArea::Tabs),
+            // Back to high digit!
+            InputEvent::Back => (
+                LaunchControlState::EnterDigitHiA { hi_a },
+                ControlArea::Details,
+            ),
             InputEvent::Right(_) => (
                 LaunchControlState::EnterDigitLoA {
                     hi_a,
@@ -492,7 +496,7 @@ impl LaunchControlState {
                 },
                 ControlArea::Details,
             ),
-            InputEvent::Back => (LaunchControlState::Idle, ControlArea::Tabs),
+            InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
             InputEvent::Right(_) => (
                 LaunchControlState::EnterDigitHiB {
                     hi_a,
@@ -531,7 +535,11 @@ impl LaunchControlState {
                 },
                 ControlArea::Details,
             ),
-            InputEvent::Back => (LaunchControlState::Idle, ControlArea::Tabs),
+            // Back to the high digit!
+            InputEvent::Back => (
+                LaunchControlState::EnterDigitHiB { hi_a, lo_a, hi_b },
+                ControlArea::Details,
+            ),
             InputEvent::Right(_) => (
                 LaunchControlState::EnterDigitLoB {
                     hi_a,
@@ -564,7 +572,7 @@ impl LaunchControlState {
         progress: u8,
     ) -> (Self, ControlArea) {
         match event {
-            InputEvent::Back => (LaunchControlState::Idle, ControlArea::Tabs),
+            InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
             InputEvent::Right(_) => (
                 LaunchControlState::PrepareIgnition {
                     hi_a,
