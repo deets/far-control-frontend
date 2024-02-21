@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Instant};
 
-use control_frontend::consort::{Consort, SimpleIdGenerator};
+use control_frontend::consort::Consort;
 use control_frontend::input::InputEvent;
-use control_frontend::model::Model;
+use control_frontend::model::{Model, SharedIdGenerator};
 use control_frontend::render::render;
 use control_frontend::rqprotocol::Node;
 use control_frontend::timestep::TimeStep;
@@ -12,7 +12,6 @@ use control_frontend::ebyte::E32Connection;
 #[cfg(not(feature = "e32"))]
 use control_frontend::ebytemock::E32Connection;
 
-use control_frontend::visualisation::setup_custom_fonts;
 use egui_glow::glow::HasContext;
 use egui_sdl2_platform::sdl2;
 use log::info;
@@ -25,8 +24,15 @@ const DEVICE: &str = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-p
 async fn run() -> anyhow::Result<()> {
     simple_logger::init_with_env().unwrap();
     info!("Opening E32 {}", DEVICE);
+    let id_generator = SharedIdGenerator::default();
+    let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
+    let conn = E32Connection::new(
+        DEVICE,
+        id_generator.clone(),
+        me.clone(),
+        target_red_queen.clone(),
+    )?;
 
-    let mut conn = E32Connection::new(DEVICE)?;
     // Initialize sdl
     let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;
     // Create the video subsystem
@@ -59,21 +65,19 @@ async fn run() -> anyhow::Result<()> {
     let mut platform = egui_sdl2_platform::Platform::new(window.size())?;
 
     // The clear color
-    let mut color = [0.0, 0.0, 0.0, 1.0];
+    let color = [0.0, 0.0, 0.0, 1.0];
     // Get the time before the loop started
     let start_time = Instant::now();
     let mut timestep = TimeStep::new();
     let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
     let consort = Consort::new_with_id_generator(
-        Node::LaunchControl,
-        Node::RedQueen(b'A'),
+        me,
+        target_red_queen,
         &mut ringbuffer,
         start_time,
-        SimpleIdGenerator::default(),
+        id_generator,
     );
     let mut model = Model::new(consort, conn, start_time);
-    let ctx = platform.context();
-    //setup_custom_fonts(&ctx);
 
     'main: loop {
         // Update the time

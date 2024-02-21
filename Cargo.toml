@@ -6,6 +6,7 @@ edition = "2021"
 default-run = "launch-control"
 
 [features]
+default = ["e32"]
 e32 = ["dep:ebyte-e32", "dep:ebyte-e32-ftdi"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

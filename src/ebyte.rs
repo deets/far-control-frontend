@@ -16,7 +16,8 @@ use std::{
 
 use crate::{
     connection::{Answers, Connection},
-    rqparser::SentenceParser,
+    rqparser::{SentenceParser, MAX_BUFFER_SIZE},
+    rqprotocol::{Command, Node, Transaction},
 };
 
 const ANSWER_TIMEOUT: Duration = Duration::from_millis(100);
@@ -30,10 +31,13 @@ enum Commands {
     Quit,
 }
 
-struct E32Worker<'a> {
+struct E32Worker<'a, Id> {
     command_receiver: Receiver<Commands>,
     response_sender: Sender<Answers>,
     sentence_parser: SentenceParser<'a, AllocRingBuffer<u8>>,
+    command_id_generator: Id,
+    me: Node,
+    target_red_queen: Node,
 }
 
 pub struct E32Connection {
@@ -44,7 +48,12 @@ pub struct E32Connection {
 }
 
 impl E32Connection {
-    pub fn new(port: &str) -> anyhow::Result<E32Connection> {
+    pub fn new<Id: Iterator<Item = usize> + Send + Sync + 'static>(
+        port: &str,
+        command_id_generator: Id,
+        me: Node,
+        target_red_queen: Node,
+    ) -> anyhow::Result<E32Connection> {
         let port = port.to_string();
         let (command_sender, command_receiver) = unbounded::<Commands>();
         let (response_sender, response_receiver) = unbounded::<Answers>();
@@ -55,6 +64,9 @@ impl E32Connection {
                 command_receiver,
                 response_sender,
                 sentence_parser,
+                command_id_generator,
+                me,
+                target_red_queen,
             };
             worker.work();
         });
@@ -99,7 +111,10 @@ impl Drop for E32Connection {
     }
 }
 
-impl E32Worker<'_> {
+impl<Id> E32Worker<'_, Id>
+where
+    Id: Iterator<Item = usize>,
+{
     fn work(&mut self) {
         let mut module = None;
         loop {
@@ -118,7 +133,7 @@ impl E32Worker<'_> {
                     Commands::Send(data) => match &mut module {
                         Some(module) => {
                             debug!("sending {}", std::str::from_utf8(&data).unwrap());
-                            self.send_and_wait_for_response(module, &data);
+                            self.send_and_wait_for_response(module, &data, false);
                         }
                         None => {
                             error!("No open E32 connection");
@@ -131,7 +146,14 @@ impl E32Worker<'_> {
                     },
                 },
                 Err(RecvTimeoutError::Timeout) => {
-                    debug!("Send ping");
+                    if let Some(module) = &mut module {
+                        let id = self.command_id_generator.next().unwrap();
+                        let t = Transaction::new(self.me, self.target_red_queen, id, Command::Ping);
+                        debug!("Send ping {}", id);
+                        let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
+                        let result = t.commandeer(&mut dest).unwrap();
+                        self.send_and_wait_for_response(module, result, true);
+                    }
                 }
                 Err(_) => {
                     panic!("Crossbeam is angry");
@@ -140,7 +162,12 @@ impl E32Worker<'_> {
         }
     }
 
-    fn send_and_wait_for_response(&mut self, module: &mut E32Module, data: &[u8]) {
+    fn send_and_wait_for_response(
+        &mut self,
+        module: &mut E32Module,
+        data: &[u8],
+        suppress_response: bool,
+    ) {
         let last_comm = Instant::now();
         let mut count = 0;
         module.write_buffer(&data).expect("can't send data");
@@ -153,10 +180,12 @@ impl E32Worker<'_> {
                         .feed(&[b], |sentence_| sentence = Some(sentence_.to_vec()))
                         .expect("error parsing sentence");
                     if let Some(sentence) = sentence {
-                        debug!("sending data into main thread");
-                        self.response_sender
-                            .send(Answers::Received(sentence.into()))
-                            .expect("can't ack data");
+                        if !suppress_response {
+                            debug!("sending data into main thread");
+                            self.response_sender
+                                .send(Answers::Received(sentence.into()))
+                                .expect("can't ack data");
+                        }
                         return;
                     }
                 }

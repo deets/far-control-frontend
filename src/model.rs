@@ -5,21 +5,39 @@ use ringbuffer::{AllocRingBuffer, RingBuffer};
 #[cfg(not(test))]
 use std::time::Instant;
 
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use crate::{
     connection::{Answers, Connection},
-    consort::Consort,
+    consort::{Consort, SimpleIdGenerator},
     input::InputEvent,
     rqparser::MAX_BUFFER_SIZE,
     rqprotocol::{Command, Response},
 };
 
-#[cfg(feature = "e32")]
-type E32Connection = crate::ebyte::E32Connection;
+#[derive(Clone)]
+pub struct SharedIdGenerator {
+    command_id_generator: Arc<Mutex<SimpleIdGenerator>>,
+}
 
-#[cfg(not(feature = "e32"))]
-type E32Connection = crate::ebytemock::E32Connection;
+impl Iterator for SharedIdGenerator {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.command_id_generator.lock().unwrap().next()
+    }
+}
+
+impl Default for SharedIdGenerator {
+    fn default() -> Self {
+        Self {
+            command_id_generator: Default::default(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LaunchControlState {

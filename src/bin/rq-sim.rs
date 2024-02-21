@@ -6,7 +6,7 @@ use control_frontend::{
 };
 
 #[cfg(feature = "e32")]
-use embedded_hal::serial::{Read, Write};
+use embedded_hal::serial::Read;
 #[cfg(feature = "e32")]
 type E32Connection = control_frontend::ebyte::E32Connection;
 
