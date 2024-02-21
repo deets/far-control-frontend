@@ -18,7 +18,7 @@ use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing
 //     (left, right)
 // }
 
-fn render_header<C: Connection>(ui: &mut Ui, model: &Model<C>) {
+fn render_header<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Model<C, Id>) {
     ui.horizontal(|ui| {
         let is_observables = match model.mode() {
             Mode::Observables(_) => true,
@@ -89,7 +89,7 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
     });
 }
 
-fn render_body<C: Connection>(ui: &mut Ui, state: &Model<C>) {
+fn render_body<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, state: &Model<C, Id>) {
     match state.mode {
         Mode::Observables(_state) => {}
         Mode::LaunchControl(state) => {
@@ -141,7 +141,7 @@ fn render_alive(ui: &mut Ui) {
     });
 }
 
-fn render_status<C: Connection>(ui: &mut Ui, model: &Model<C>) {
+fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Model<C, Id>) {
     ui.horizontal(|ui| {
         if model.mode.is_failure() {
             ui.spinner();
@@ -185,10 +185,7 @@ fn frame(active: bool) -> Frame {
     }
 }
 
-pub fn render<C: Connection>(ui: &mut Ui, model: &Model<C>)
-where
-    C: Connection,
-{
+pub fn render<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Model<C, Id>) {
     let tabs_active = match model.control {
         ControlArea::Tabs => true,
         ControlArea::Details => false,

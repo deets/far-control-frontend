@@ -84,13 +84,14 @@ pub enum ControlArea {
     Details,
 }
 
-pub struct Model<'a, C>
+pub struct Model<'a, C, Id>
 where
     C: Connection,
+    Id: Iterator<Item = usize>,
 {
     pub mode: Mode,
     pub control: ControlArea,
-    pub consort: Consort<'a>,
+    pub consort: Consort<'a, Id>,
     module: C,
     start: Instant,
     now: Instant,
@@ -597,8 +598,8 @@ impl LaunchControlState {
     }
 }
 
-impl<'a, C: Connection> Model<'a, C> {
-    pub fn new(consort: Consort<'a>, module: C, now: Instant) -> Self {
+impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
+    pub fn new(consort: Consort<'a, Id>, module: C, now: Instant) -> Self {
         Self {
             mode: Default::default(),
             control: Default::default(),
@@ -758,6 +759,7 @@ impl<'a, C: Connection> Model<'a, C> {
 
 #[cfg(test)]
 mod tests {
+    use crate::consort::SimpleIdGenerator;
     use crate::rqparser::command_parser;
     use crate::rqprotocol::Node;
     use std::assert_matches;
@@ -801,7 +803,13 @@ mod tests {
         let mut buffer = AllocRingBuffer::new(256);
         let connection = MockConnection { responses: vec![] };
         let now = Instant::now();
-        let consort = Consort::new(Node::LaunchControl, Node::RedQueen(b'A'), &mut buffer, now);
+        let consort = Consort::new_with_id_generator(
+            Node::LaunchControl,
+            Node::RedQueen(b'A'),
+            &mut buffer,
+            now,
+            SimpleIdGenerator::default(),
+        );
         let mut model = Model::new(consort, connection, now);
         assert_matches!(model.mode(), Mode::LaunchControl(_));
         assert_eq!(model.control, ControlArea::Tabs);

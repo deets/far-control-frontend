@@ -351,6 +351,14 @@ fn command_reset_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
     Ok((rest, transaction))
 }
 
+fn command_ping_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
+    // LNCCMD,123,RQA,PING
+    let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
+    let (rest, _) = tag(b"PING")(rest)?;
+    let transaction = Transaction::new(source, recipient, command_id, Command::Ping);
+    Ok((rest, transaction))
+}
+
 fn command_ignition_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
     // LNCCMD,123,RQA,IGNITION
     let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
@@ -392,6 +400,7 @@ pub fn command_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
         command_ignition_parser,
         command_secret_partial_parser,
         command_secret_full_parser,
+        command_ping_parser,
     ))(s)
 }
 
@@ -667,6 +676,19 @@ mod tests {
                     source: Node::LaunchControl,
                     recipient: Node::RedQueen(b'A'),
                     command: Command::LaunchSecretFull(0xab, 0xcd),
+                    ..
+                }
+            ))
+        );
+        assert_matches!(
+            command_parser(b"LNCCMD,123,RQA,PING"),
+            Ok((
+                b"",
+                Transaction {
+                    id: 123,
+                    source: Node::LaunchControl,
+                    recipient: Node::RedQueen(b'A'),
+                    command: Command::Ping,
                     ..
                 }
             ))

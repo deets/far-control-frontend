@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
+use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use ebyte_e32::{mode::Normal, Ebyte, Parameters};
 use ebyte_e32_ftdi::{CtsAux, M0Dtr, M1Rts, Serial, StandardDelay};
 use embedded_hal::serial::Read;
@@ -103,7 +103,7 @@ impl E32Worker<'_> {
     fn work(&mut self) {
         let mut module = None;
         loop {
-            match self.command_receiver.recv() {
+            match self.command_receiver.recv_timeout(Duration::from_secs(2)) {
                 Ok(m) => match m {
                     Commands::Quit => {
                         break;
@@ -130,6 +130,9 @@ impl E32Worker<'_> {
                         }
                     },
                 },
+                Err(RecvTimeoutError::Timeout) => {
+                    debug!("Send ping");
+                }
                 Err(_) => {
                     panic!("Crossbeam is angry");
                 }

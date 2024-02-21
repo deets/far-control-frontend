@@ -27,12 +27,12 @@ pub enum Error {
 
 // Liaison to the RedQueen2
 #[derive(Debug)]
-pub struct Consort<'a> {
+pub struct Consort<'a, Id> {
     me: Node,
     dest: Node,
     sentence_parser: SentenceParser<'a, AllocRingBuffer<u8>>,
     transaction: Option<Transaction>,
-    command_id: usize,
+    command_id_generator: Id,
     now: Instant,
 }
 
@@ -67,12 +67,37 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
-impl<'a> Consort<'a> {
-    pub fn new(
+pub struct SimpleIdGenerator {
+    id: usize,
+}
+
+impl Default for SimpleIdGenerator {
+    fn default() -> Self {
+        Self {
+            id: Default::default(),
+        }
+    }
+}
+
+impl Iterator for SimpleIdGenerator {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.id = (self.id + 1) % 1000;
+        Some(self.id)
+    }
+}
+
+impl<'a, Id> Consort<'a, Id>
+where
+    Id: Iterator<Item = usize>,
+{
+    pub fn new_with_id_generator(
         me: Node,
         dest: Node,
         ringbuffer: &'a mut AllocRingBuffer<u8>,
         now: Instant,
+        command_id_generator: Id,
     ) -> Self {
         let sentence_parser = SentenceParser::new(ringbuffer);
         Self {
@@ -80,7 +105,7 @@ impl<'a> Consort<'a> {
             dest,
             sentence_parser,
             transaction: None,
-            command_id: 0, // TODO: randomize
+            command_id_generator,
             now,
         }
     }
@@ -154,8 +179,7 @@ impl<'a> Consort<'a> {
     }
 
     fn next_id(&mut self) -> usize {
-        self.command_id = (self.command_id + 1) % 1000;
-        self.command_id
+        self.command_id_generator.next().unwrap()
     }
 }
 
@@ -214,22 +238,24 @@ mod tests {
     #[test]
     fn test_instantiation() {
         let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-        let _consort = Consort::new(
+        let _consort = Consort::new_with_id_generator(
             Node::LaunchControl,
             Node::RedQueen(b'A'),
             &mut ringbuffer,
             Instant::now(),
+            SimpleIdGenerator::default(),
         );
     }
 
     #[test]
     fn test_sending_command() {
         let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-        let mut consort = Consort::new(
+        let mut consort = Consort::new_with_id_generator(
             Node::LaunchControl,
             Node::RedQueen(b'A'),
             &mut ringbuffer,
             Instant::now(),
+            SimpleIdGenerator::default(),
         );
         let mut mock_port = MockPort::default();
         consort
@@ -251,11 +277,12 @@ mod tests {
     #[test]
     fn test_sending_command_and_receiving_partial_answer() {
         let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-        let mut consort = Consort::new(
+        let mut consort = Consort::new_with_id_generator(
             Node::LaunchControl,
             Node::RedQueen(b'A'),
             &mut ringbuffer,
             Instant::now(),
+            SimpleIdGenerator::default(),
         );
         let mut mock_port = MockPort::default();
         consort
@@ -276,11 +303,12 @@ mod tests {
     #[test]
     fn test_sending_spurious_command() {
         let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-        let mut consort = Consort::new(
+        let mut consort = Consort::new_with_id_generator(
             Node::LaunchControl,
             Node::RedQueen(b'A'),
             &mut ringbuffer,
             Instant::now(),
+            SimpleIdGenerator::default(),
         );
 
         let mut inputbuffer = ringbuffer::AllocRingBuffer::new(256);

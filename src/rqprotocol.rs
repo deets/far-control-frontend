@@ -56,6 +56,7 @@ pub enum Command {
     LaunchSecretPartial(u8),
     LaunchSecretFull(u8, u8),
     Ignition,
+    Ping,
 }
 
 impl Display for Error {
@@ -70,6 +71,7 @@ pub enum Response {
     IgnitionAck,
     LaunchSecretFullAck,
     LaunchSecretPartialAck,
+    PingAck,
 }
 
 enum CommandProcessor {
@@ -77,6 +79,7 @@ enum CommandProcessor {
     LaunchSecretPartial(u8),
     LaunchSecretFull(u8, u8),
     IgnitionAck,
+    PingAck,
 }
 
 impl Command {
@@ -86,6 +89,7 @@ impl Command {
             Command::LaunchSecretPartial(_) => b"SECRET_A",
             Command::LaunchSecretFull(_, _) => b"SECRET_AB",
             Command::Ignition => b"IGNITION",
+            Command::Ping => b"PING",
         }
     }
 
@@ -95,6 +99,7 @@ impl Command {
             Command::LaunchSecretPartial(a) => CommandProcessor::LaunchSecretPartial(*a),
             Command::LaunchSecretFull(a, b) => CommandProcessor::LaunchSecretFull(*a, *b),
             Command::Ignition => CommandProcessor::IgnitionAck,
+            Command::Ping => CommandProcessor::PingAck,
         }
     }
 }
@@ -255,6 +260,7 @@ impl Marshal for Command {
                 u8_parameter(buffer, range, *b)
             }
             Command::Ignition => Ok(range),
+            Command::Ping => Ok(range),
         }
     }
 
@@ -411,6 +417,7 @@ impl CommandProcessor {
             }
             CommandProcessor::ResetAck => Ok((params, Response::ResetAck)),
             CommandProcessor::IgnitionAck => Ok((params, Response::IgnitionAck)),
+            CommandProcessor::PingAck => Ok((params, Response::PingAck)),
         }
     }
 }

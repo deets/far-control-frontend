@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
-use control_frontend::consort::Consort;
+use control_frontend::consort::{Consort, SimpleIdGenerator};
 use control_frontend::input::InputEvent;
 use control_frontend::model::Model;
 use control_frontend::render::render;
@@ -64,11 +64,12 @@ async fn run() -> anyhow::Result<()> {
     let start_time = Instant::now();
     let mut timestep = TimeStep::new();
     let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-    let consort = Consort::new(
+    let consort = Consort::new_with_id_generator(
         Node::LaunchControl,
         Node::RedQueen(b'A'),
         &mut ringbuffer,
         start_time,
+        SimpleIdGenerator::default(),
     );
     let mut model = Model::new(consort, conn, start_time);
     let ctx = platform.context();
@@ -77,7 +78,7 @@ async fn run() -> anyhow::Result<()> {
     'main: loop {
         // Update the time
         platform.update_time(start_time.elapsed().as_secs_f64());
-        model.drive(Instant::now());
+        model.drive(Instant::now()).unwrap();
 
         let ctx = platform.context();
         let mut input_events = vec![];
