@@ -3,6 +3,7 @@ use egui::{
     vec2, Align2, Color32, FontId, Frame, ProgressBar, RichText, Rounding, Sense, Stroke, Ui,
 };
 use emath::{pos2, Pos2};
+use palette::{Gradient, LinSrgb};
 
 use crate::connection::Connection;
 use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing};
@@ -85,6 +86,27 @@ fn render_fire(ui: &mut Ui, state: &LaunchControlState) {
     );
 }
 
+fn render_progress(ui: &mut Ui, state: &LaunchControlState) {
+    let progress = state.prepare_ignition_progress() as f32 / 100.0;
+    let gradient = Gradient::new(vec![
+        LinSrgb::new(0.0, 1.0, 0.0),
+        LinSrgb::new(1.0, 1.0, 0.0),
+        LinSrgb::new(1.0, 0.0, 0.0),
+    ]);
+    let color = gradient.get(progress);
+    let color = Color32::from_rgb(
+        (color.red * 255.0) as u8,
+        (color.green * 255.0) as u8,
+        (color.blue * 255.0) as u8,
+    );
+
+    let pbar = ProgressBar::new(progress).fill(match state {
+        LaunchControlState::PrepareIgnition { .. } => color,
+        _ => Color32::DARK_GRAY,
+    });
+    ui.add(pbar);
+}
+
 fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
     let (hi_a, lo_a, hi_b, lo_b) = state.digits();
     let (hi_a_hl, lo_a_hl, hi_b_hl, lo_b_hl) = state.highlights();
@@ -107,12 +129,7 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
             render_digit(ui, hi_b, hi_b_hl);
             render_digit(ui, lo_b, lo_b_hl);
         });
-        let pbar =
-            ProgressBar::new(state.prepare_ignition_progress() as f32 / 100.0).fill(match state {
-                LaunchControlState::PrepareIgnition { .. } => Color32::RED,
-                _ => Color32::DARK_GRAY,
-            });
-        ui.add(pbar);
+        render_progress(ui, state);
         render_fire(ui, state);
     });
 }
