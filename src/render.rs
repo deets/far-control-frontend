@@ -29,6 +29,14 @@ fn render_header<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
     });
 }
 
+fn active_color(active: bool) -> Color32 {
+    if active {
+        Color32::WHITE
+    } else {
+        Color32::DARK_GRAY
+    }
+}
+
 fn render_digit(ui: &mut Ui, digit: u8, active: bool) {
     let digit_font = FontId::new(54.0, egui::FontFamily::Monospace);
     let painter = ui.painter();
@@ -47,17 +55,33 @@ fn render_digit(ui: &mut Ui, digit: u8, active: bool) {
         Align2::CENTER_CENTER,
         text,
         digit_font,
-        if active {
-            Color32::WHITE
-        } else {
-            Color32::DARK_GRAY
-        },
+        active_color(active),
     );
-    painter.rect(
-        response.rect,
-        Rounding::default(),
-        Color32::TRANSPARENT,
-        Stroke::new(4.0, Color32::RED),
+    // painter.rect(
+    //     response.rect,
+    //     Rounding::default(),
+    //     Color32::TRANSPARENT,
+    //     Stroke::new(4.0, Color32::RED),
+    // );
+}
+
+fn render_fire(ui: &mut Ui, state: &LaunchControlState) {
+    let digit_font = FontId::new(54.0, egui::FontFamily::Monospace);
+    let painter = ui.painter();
+    let text = "Press Enter to Fire!";
+    let galley = painter.layout_no_wrap(text.into(), digit_font.clone(), Color32::RED);
+    let rect = galley.size();
+    let (response, painter) = ui.allocate_painter(rect.into(), Sense::hover());
+
+    painter.text(
+        response.rect.center(),
+        Align2::CENTER_CENTER,
+        text,
+        digit_font,
+        active_color(match state {
+            LaunchControlState::WaitForFire { .. } => true,
+            _ => false,
+        }),
     );
 }
 
@@ -84,8 +108,12 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
             render_digit(ui, lo_b, lo_b_hl);
         });
         let pbar =
-            ProgressBar::new(state.prepare_ignition_progress() as f32 / 100.0).fill(Color32::RED);
+            ProgressBar::new(state.prepare_ignition_progress() as f32 / 100.0).fill(match state {
+                LaunchControlState::PrepareIgnition { .. } => Color32::RED,
+                _ => Color32::DARK_GRAY,
+            });
         ui.add(pbar);
+        render_fire(ui, state);
     });
 }
 

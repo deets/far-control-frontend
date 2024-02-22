@@ -80,6 +80,13 @@ pub enum LaunchControlState {
         lo_b: u8,
         progress: u8,
     },
+    WaitForFire {
+        hi_a: u8,
+        lo_a: u8,
+        hi_b: u8,
+        lo_b: u8,
+    },
+    Fire,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -167,6 +174,10 @@ impl StateProcessing for LaunchControlState {
                 },
                 _ => Self::State::Start,
             },
+            Self::State::Fire => match response {
+                Response::IgnitionAck => Self::State::Idle,
+                _ => Self::State::Start,
+            },
             _ => *self,
         }
     }
@@ -184,6 +195,8 @@ impl StateProcessing for LaunchControlState {
             Self::State::EnterDigitLoB { .. } => "Enter Lo B",
             Self::State::TransmitSecretAB { .. } => "Transmitting Secret AB",
             Self::State::PrepareIgnition { .. } => "Prepare Ignition",
+            Self::State::WaitForFire { .. } => "Wait for Fire",
+            Self::State::Fire { .. } => "Fire!",
         }
     }
 
@@ -219,10 +232,18 @@ impl StateProcessing for LaunchControlState {
                 lo_b,
                 progress,
             } => self.process_prepare_ignition(event, *hi_a, *lo_a, *hi_b, *lo_b, *progress),
+            LaunchControlState::WaitForFire {
+                hi_a,
+                lo_a,
+                hi_b,
+                lo_b,
+            } => self.process_fire(event, *hi_a, *lo_a, *hi_b, *lo_b),
             // only left through a response
             LaunchControlState::TransmitSecretA { .. } => (*self, ControlArea::Details),
             // only left through a response
             LaunchControlState::TransmitSecretAB { .. } => (*self, ControlArea::Details),
+            // only left through a response
+            LaunchControlState::Fire => (*self, ControlArea::Details),
             _ => self.process_event_nop(event),
         }
     }
@@ -241,6 +262,7 @@ impl StateProcessing for LaunchControlState {
                 hi_a << 4 | lo_a,
                 hi_b << 4 | lo_b,
             )),
+            LaunchControlState::Fire => Some(Command::Ignition),
             _ => None,
         }
     }
@@ -402,6 +424,13 @@ impl LaunchControlState {
                 lo_b,
                 ..
             } => (*hi_a, *lo_a, *hi_b, *lo_b),
+            LaunchControlState::WaitForFire {
+                hi_a,
+                lo_a,
+                hi_b,
+                lo_b,
+            } => (*hi_a, *lo_a, *hi_b, *lo_b),
+            LaunchControlState::Fire => (0, 0, 0, 0),
         }
     }
 
@@ -416,10 +445,10 @@ impl LaunchControlState {
     }
 
     pub fn prepare_ignition_progress(&self) -> u8 {
-        if let LaunchControlState::PrepareIgnition { progress, .. } = self {
-            *progress
-        } else {
-            0
+        match self {
+            LaunchControlState::PrepareIgnition { progress, .. } => *progress,
+            LaunchControlState::WaitForFire { .. } => 100,
+            _ => 0,
         }
     }
 
@@ -590,25 +619,60 @@ impl LaunchControlState {
         lo_b: u8,
         progress: u8,
     ) -> (Self, ControlArea) {
-        match event {
-            InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
-            InputEvent::Right(_) => (
-                LaunchControlState::PrepareIgnition {
+        if progress == 100 {
+            (
+                LaunchControlState::WaitForFire {
                     hi_a,
                     lo_a,
                     hi_b,
                     lo_b,
-                    progress: std::cmp::min(progress + 3, 100),
                 },
                 ControlArea::Details,
-            ),
+            )
+        } else {
+            match event {
+                InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
+                InputEvent::Right(_) => (
+                    LaunchControlState::PrepareIgnition {
+                        hi_a,
+                        lo_a,
+                        hi_b,
+                        lo_b,
+                        progress: std::cmp::min(progress + 3, 100),
+                    },
+                    ControlArea::Details,
+                ),
+                _ => (
+                    LaunchControlState::PrepareIgnition {
+                        hi_a,
+                        lo_a,
+                        hi_b,
+                        lo_b,
+                        progress,
+                    },
+                    ControlArea::Details,
+                ),
+            }
+        }
+    }
+
+    fn process_fire(
+        &self,
+        event: &InputEvent,
+        hi_a: u8,
+        lo_a: u8,
+        hi_b: u8,
+        lo_b: u8,
+    ) -> (Self, ControlArea) {
+        match event {
+            InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
+            InputEvent::Enter => (LaunchControlState::Fire, ControlArea::Details),
             _ => (
-                LaunchControlState::PrepareIgnition {
+                LaunchControlState::WaitForFire {
                     hi_a,
                     lo_a,
                     hi_b,
                     lo_b,
-                    progress,
                 },
                 ControlArea::Details,
             ),
