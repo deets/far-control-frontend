@@ -1,7 +1,5 @@
 use egui::epaint::Shadow;
-use egui::{
-    vec2, Align2, Color32, FontId, Frame, ProgressBar, RichText, Rounding, Sense, Stroke, Ui,
-};
+use egui::{vec2, Align2, Color32, FontId, Frame, Id, ProgressBar, RichText, Sense, Stroke, Ui};
 use emath::{pos2, Pos2};
 use palette::{Gradient, LinSrgb};
 
@@ -230,6 +228,43 @@ fn frame(active: bool) -> Frame {
     }
 }
 
+fn status_background_frame<C: Connection, IdGenerator: Iterator<Item = usize>>(
+    ui: &mut Ui,
+    model: &Model<C, IdGenerator>,
+) -> Frame {
+    let id = Id::new("status_background_frame");
+    let how_connected = ui.ctx().animate_bool_with_time(id, !model.connected(), 0.5);
+    let fill = Color32::DARK_RED.gamma_multiply(how_connected);
+
+    egui::containers::Frame {
+        rounding: egui::Rounding {
+            nw: 1.0,
+            ne: 1.0,
+            sw: 1.0,
+            se: 1.0,
+        },
+        fill,
+        stroke: egui::Stroke::NONE,
+        inner_margin: {
+            egui::style::Margin {
+                left: 10.,
+                right: 10.,
+                top: 10.,
+                bottom: 10.,
+            }
+        },
+        outer_margin: {
+            egui::style::Margin {
+                left: 10.,
+                right: 10.,
+                top: 10.,
+                bottom: 10.,
+            }
+        },
+        shadow: Shadow::NONE,
+    }
+}
+
 pub fn render<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Model<C, Id>) {
     let tabs_active = match model.control {
         ControlArea::Tabs => true,
@@ -247,6 +282,7 @@ pub fn render<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Mo
     egui::TopBottomPanel::bottom("bottom_panel")
         .resizable(false)
         .min_height(ui.spacing().interact_size.y * 2.0)
+        .frame(status_background_frame(ui, model))
         .show_inside(ui, |ui| {
             ui.vertical_centered(|ui| {
                 render_status(ui, model);

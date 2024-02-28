@@ -136,6 +136,8 @@ pub trait StateProcessing {
     fn process_mode_change(&self) -> Option<Command>;
 
     fn drive(&self) -> Self::State;
+
+    fn connected(&self) -> bool;
 }
 
 impl StateProcessing for LaunchControlState {
@@ -289,6 +291,15 @@ impl StateProcessing for LaunchControlState {
             _ => *self,
         }
     }
+
+    fn connected(&self) -> bool {
+        match self {
+            LaunchControlState::Start => false,
+            LaunchControlState::Failure => false,
+            LaunchControlState::Reset => false,
+            _ => true,
+        }
+    }
 }
 
 impl StateProcessing for ObservablesState {
@@ -327,6 +338,15 @@ impl StateProcessing for ObservablesState {
 
     fn drive(&self) -> Self {
         *self
+    }
+
+    fn connected(&self) -> bool {
+        match self {
+            ObservablesState::Start => false,
+            ObservablesState::Failure => false,
+            ObservablesState::Reset => false,
+            ObservablesState::Idle => true,
+        }
     }
 }
 
@@ -378,6 +398,13 @@ impl StateProcessing for Mode {
         match self {
             Mode::LaunchControl(state) => Mode::LaunchControl(state.drive()),
             Mode::Observables(state) => Mode::Observables(state.drive()),
+        }
+    }
+
+    fn connected(&self) -> bool {
+        match self {
+            Mode::Observables(state) => state.connected(),
+            Mode::LaunchControl(state) => state.connected(),
         }
     }
 }
@@ -836,6 +863,10 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
             Mode::Observables(_) => Mode::LaunchControl(LaunchControlState::Start),
         };
         ControlArea::Tabs
+    }
+
+    pub fn connected(&self) -> bool {
+        self.mode.connected()
     }
 }
 
