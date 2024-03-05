@@ -57,6 +57,7 @@ pub enum Command {
     LaunchSecretFull(u8, u8),
     Ignition,
     Ping,
+    ObservableGroup(u8),
 }
 
 impl Display for Error {
@@ -72,6 +73,7 @@ pub enum Response {
     LaunchSecretFullAck,
     LaunchSecretPartialAck,
     PingAck,
+    ObservableGroupAck,
 }
 
 enum CommandProcessor {
@@ -80,6 +82,7 @@ enum CommandProcessor {
     LaunchSecretFull(u8, u8),
     IgnitionAck,
     PingAck,
+    ObservableGroupAck(u8),
 }
 
 impl Command {
@@ -90,6 +93,7 @@ impl Command {
             Command::LaunchSecretFull(_, _) => b"SECRET_AB",
             Command::Ignition => b"IGNITION",
             Command::Ping => b"PING",
+            Command::ObservableGroup(_) => b"OBSG",
         }
     }
 
@@ -100,14 +104,24 @@ impl Command {
             Command::LaunchSecretFull(a, b) => CommandProcessor::LaunchSecretFull(*a, *b),
             Command::Ignition => CommandProcessor::IgnitionAck,
             Command::Ping => CommandProcessor::PingAck,
+            Command::ObservableGroup(g) => CommandProcessor::ObservableGroupAck(*g),
         }
     }
-
     fn process_response(
         &self,
         transaction: &Transaction,
         contents: &[u8],
-    ) -> Result<Response, Error> {
+    ) -> Result<(TransactionState, Response), Error> {
+        match self {
+            _ => self.process_immediate_response(transaction, contents),
+        }
+    }
+
+    fn process_immediate_response(
+        &self,
+        transaction: &Transaction,
+        contents: &[u8],
+    ) -> Result<(TransactionState, Response), Error> {
         let (rest, response) = ack_parser(contents)?;
         match response {
             Acknowledgement::Ack(AckHeader {
@@ -123,7 +137,7 @@ impl Command {
                 {
                     let (trailing, response) = self.processor().process_response(rest)?;
                     if trailing.is_empty() {
-                        Ok(response)
+                        Ok((TransactionState::Dead, response))
                     } else {
                         Err(Error::FormatError(FormatErrorDetail::TrailingCharacters))
                     }
@@ -293,6 +307,7 @@ impl Marshal for Command {
             }
             Command::Ignition => Ok(range),
             Command::Ping => Ok(range),
+            Command::ObservableGroup(group) => u8_parameter(buffer, range, *group),
         }
     }
 
@@ -382,8 +397,9 @@ impl Transaction {
         let contents = verify_nmea_format(sentence)?;
         // Currently, all commands lead to the Transaction
         // being dead, so let's just hard-code this here
-        self.state = TransactionState::Dead;
-        self.command.process_response(self, contents)
+        let (state, response) = self.command.process_response(self, contents)?;
+        self.state = state;
+        Ok(response)
     }
 
     pub fn commandeer<'a>(&self, dest: &'a mut [u8; MAX_BUFFER_SIZE]) -> Result<&'a [u8], Error> {
@@ -429,6 +445,14 @@ impl CommandProcessor {
             CommandProcessor::ResetAck => Ok((params, Response::ResetAck)),
             CommandProcessor::IgnitionAck => Ok((params, Response::IgnitionAck)),
             CommandProcessor::PingAck => Ok((params, Response::PingAck)),
+            CommandProcessor::ObservableGroupAck(g) => {
+                let (rest, param) = one_return_value_parser(params)?;
+                if param == *g {
+                    Ok((rest, Response::ObservableGroupAck))
+                } else {
+                    Err(Error::ParseError)
+                }
+            }
         }
     }
 }
@@ -499,6 +523,21 @@ mod tests {
         let result = t.commandeer(&mut dest).unwrap();
         assert_eq!(result, b"$LNCCMD,123,RQA,IGNITION*40\r\n".as_slice());
         assert_matches!(t.process_response(b"$RQAACK,123,LNC*7A\r\n"), Ok(_),);
+        assert_eq!(t.state(), TransactionState::Dead);
+    }
+
+    #[test]
+    fn test_observable_group_immediate_ack() {
+        let mut t = Transaction::from_sentence(b"LNCCMD,123,RQA,OBSG,01").unwrap();
+
+        let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
+        let result = t.commandeer(&mut dest).unwrap();
+        assert_eq!(result, b"$LNCCMD,123,RQA,OBSG,01*61\r\n".as_slice());
+        assert_eq!(
+            t.acknowledge(&mut dest).unwrap(),
+            b"$RQAACK,123,LNC,01*57\r\n".as_slice()
+        );
+        assert_matches!(t.process_response(b"$RQAACK,123,LNC,01*57\r\n"), Ok(_),);
         assert_eq!(t.state(), TransactionState::Dead);
     }
 

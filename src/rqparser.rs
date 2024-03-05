@@ -380,6 +380,19 @@ fn command_secret_partial_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
     Ok((rest, transaction))
 }
 
+fn command_obsg_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
+    // LNCCMD,123,RQA,OBSG,01
+    let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
+    let (rest, (_, group)) = tuple((tag(b"OBSG,"), hex_byte))(rest)?;
+    let transaction = Transaction::new(
+        source,
+        recipient,
+        command_id,
+        Command::ObservableGroup(group),
+    );
+    Ok((rest, transaction))
+}
+
 fn command_secret_full_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
     // LNCCMD,123,RQA,SECRET_AB,3F,AB
     let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
@@ -401,6 +414,7 @@ pub fn command_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
         command_secret_partial_parser,
         command_secret_full_parser,
         command_ping_parser,
+        command_obsg_parser,
     ))(s)
 }
 
@@ -663,6 +677,19 @@ mod tests {
                     source: Node::LaunchControl,
                     recipient: Node::RedQueen(b'A'),
                     command: Command::LaunchSecretPartial(0xab),
+                    ..
+                }
+            ))
+        );
+        assert_matches!(
+            command_parser(b"LNCCMD,123,RQA,OBSG,01"),
+            Ok((
+                b"",
+                Transaction {
+                    id: 123,
+                    source: Node::LaunchControl,
+                    recipient: Node::RedQueen(b'A'),
+                    command: Command::ObservableGroup(0x01),
                     ..
                 }
             ))
