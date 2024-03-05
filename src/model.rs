@@ -79,6 +79,7 @@ pub enum LaunchControlState {
         hi_b: u8,
         lo_b: u8,
         progress: u8,
+        last_update: Instant,
     },
     WaitForFire {
         hi_a: u8,
@@ -173,6 +174,7 @@ impl StateProcessing for LaunchControlState {
                     hi_b: *hi_b,
                     lo_b: *lo_b,
                     progress: 0,
+                    last_update: Instant::now(),
                 },
                 _ => Self::State::Start,
             },
@@ -233,7 +235,16 @@ impl StateProcessing for LaunchControlState {
                 hi_b,
                 lo_b,
                 progress,
-            } => self.process_prepare_ignition(event, *hi_a, *lo_a, *hi_b, *lo_b, *progress),
+                last_update,
+            } => self.process_prepare_ignition(
+                event,
+                *hi_a,
+                *lo_a,
+                *hi_b,
+                *lo_b,
+                *progress,
+                *last_update,
+            ),
             LaunchControlState::WaitForFire {
                 hi_a,
                 lo_a,
@@ -277,16 +288,22 @@ impl StateProcessing for LaunchControlState {
                 hi_b,
                 lo_b,
                 progress,
+                last_update,
             } => LaunchControlState::PrepareIgnition {
                 hi_a: *hi_a,
                 lo_a: *lo_a,
                 hi_b: *hi_b,
                 lo_b: *lo_b,
                 progress: if *progress < 100 {
-                    std::cmp::max(*progress, 1) - 1
+                    if last_update.elapsed() > Duration::from_millis(500) {
+                        std::cmp::max(*progress, 1) - 1
+                    } else {
+                        *progress
+                    }
                 } else {
                     100
                 },
+                last_update: *last_update,
             },
             _ => *self,
         }
@@ -645,7 +662,9 @@ impl LaunchControlState {
         hi_b: u8,
         lo_b: u8,
         progress: u8,
+        last_update: Instant,
     ) -> (Self, ControlArea) {
+        let now = Instant::now();
         if progress == 100 {
             (
                 LaunchControlState::WaitForFire {
@@ -666,6 +685,7 @@ impl LaunchControlState {
                         hi_b,
                         lo_b,
                         progress: std::cmp::min(progress + 3, 100),
+                        last_update: now,
                     },
                     ControlArea::Details,
                 ),
@@ -676,6 +696,7 @@ impl LaunchControlState {
                         hi_b,
                         lo_b,
                         progress,
+                        last_update,
                     },
                     ControlArea::Details,
                 ),
