@@ -102,6 +102,38 @@ impl Command {
             Command::Ping => CommandProcessor::PingAck,
         }
     }
+
+    fn process_response(
+        &self,
+        transaction: &Transaction,
+        contents: &[u8],
+    ) -> Result<Response, Error> {
+        let (rest, response) = ack_parser(contents)?;
+        match response {
+            Acknowledgement::Ack(AckHeader {
+                source,
+                recipient,
+                id,
+                ..
+            }) => {
+                // source and recipient are crossed over
+                if id == transaction.id
+                    && source == transaction.recipient
+                    && recipient == transaction.source
+                {
+                    let (trailing, response) = self.processor().process_response(rest)?;
+                    if trailing.is_empty() {
+                        Ok(response)
+                    } else {
+                        Err(Error::FormatError(FormatErrorDetail::TrailingCharacters))
+                    }
+                } else {
+                    Err(Error::InvalidAssociation)
+                }
+            }
+            Acknowledgement::Nak(_) => Err(Error::Nak),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -347,32 +379,11 @@ impl Transaction {
     }
 
     pub fn process_response(&mut self, sentence: &[u8]) -> Result<Response, Error> {
+        let contents = verify_nmea_format(sentence)?;
         // Currently, all commands lead to the Transaction
         // being dead, so let's just hard-code this here
         self.state = TransactionState::Dead;
-        let contents = verify_nmea_format(sentence)?;
-        let (rest, response) = ack_parser(contents)?;
-        match response {
-            Acknowledgement::Ack(AckHeader {
-                source,
-                recipient,
-                id,
-                ..
-            }) => {
-                // source and recipient are crossed over
-                if id == self.id && source == self.recipient && recipient == self.source {
-                    let (trailing, response) = self.command.processor().process_response(rest)?;
-                    if trailing.is_empty() {
-                        Ok(response)
-                    } else {
-                        Err(Error::FormatError(FormatErrorDetail::TrailingCharacters))
-                    }
-                } else {
-                    Err(Error::InvalidAssociation)
-                }
-            }
-            Acknowledgement::Nak(_) => Err(Error::Nak),
-        }
+        self.command.process_response(self, contents)
     }
 
     pub fn commandeer<'a>(&self, dest: &'a mut [u8; MAX_BUFFER_SIZE]) -> Result<&'a [u8], Error> {
