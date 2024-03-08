@@ -5,10 +5,10 @@ pub mod consort;
 pub mod ebyte;
 #[cfg(not(feature = "e32"))]
 pub mod ebytemock;
-pub mod ignition_statemachine;
 pub mod input;
 pub mod layout;
 pub mod model;
+pub mod observables;
 pub mod render;
 pub mod rqparser;
 pub mod rqprotocol;

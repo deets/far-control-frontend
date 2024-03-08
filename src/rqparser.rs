@@ -1,4 +1,7 @@
-use crate::rqprotocol::{AckHeader, Acknowledgement, Command, Node, RqTimestamp, Transaction};
+use crate::{
+    observables::{rqa::RawObservablesGroup1, Ads1256Reading, ClkFreq, Timestamp},
+    rqprotocol::{AckHeader, Acknowledgement, Command, Node, RqTimestamp, Transaction},
+};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while_m_n},
@@ -108,11 +111,6 @@ fn unhex<'a>(c: u8) -> Result<u8, NMEAFormatError<'a>> {
         b'A'..=b'F' => Ok(c - 55),
         _ => Err(NMEAFormatError::ChecksumError),
     }
-}
-
-fn unhex_two_bytes(b: &[u8]) -> Result<u8, NMEAFormatError> {
-    let (upper, lower) = (b[0], b[1]);
-    Ok(unhex(upper)? << 4 | unhex(lower)?)
 }
 
 fn verify_nmea_checksum<'a>(
@@ -238,6 +236,16 @@ fn timestamp_prefix(s: &[u8]) -> IResult<&[u8], (Option<u8>, Option<u8>, u8)> {
     Ok((rest, (hour, minute, seconds)))
 }
 
+fn usize_parser(s: &[u8]) -> IResult<&[u8], usize> {
+    let (rest, out) = take_while_m_n(1, 8, is_digit)(s)?;
+    let mut accu: usize = 0;
+    for c in out {
+        accu *= 10;
+        accu += (*c - 48) as usize;
+    }
+    Ok((rest, accu))
+}
+
 fn timestamp_suffix(s: &[u8]) -> IResult<&[u8], Duration> {
     let (rest, out) = take_while_m_n(1, 6, is_digit)(s)?;
     let mut accu: u64 = 0;
@@ -288,12 +296,16 @@ pub fn ack_parser(s: &[u8]) -> IResult<&[u8], Acknowledgement> {
     }
 }
 
-pub fn one_return_value_parser(s: &[u8]) -> IResult<&[u8], u8> {
+pub fn one_hex_return_value_parser(s: &[u8]) -> IResult<&[u8], u8> {
     preceded(tag(b","), hex_byte)(s)
 }
 
 pub fn two_return_values_parser(s: &[u8]) -> IResult<&[u8], (u8, u8)> {
-    tuple((one_return_value_parser, one_return_value_parser))(s)
+    tuple((one_hex_return_value_parser, one_hex_return_value_parser))(s)
+}
+
+pub fn one_usize_return_value_parser(s: &[u8]) -> IResult<&[u8], usize> {
+    preceded(tag(b","), usize_parser)(s)
 }
 
 fn hex_byte(s: &[u8]) -> IResult<&[u8], u8> {
@@ -380,10 +392,10 @@ fn command_secret_partial_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
     Ok((rest, transaction))
 }
 
-fn command_obsg_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
-    // LNCCMD,123,RQA,OBSG,01
+fn command_obg_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
+    // LNCCMD,123,RQA,OBG,01
     let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
-    let (rest, (_, group)) = tuple((tag(b"OBSG,"), hex_byte))(rest)?;
+    let (rest, (_, group)) = tuple((tag(b"OBG,"), usize_parser))(rest)?;
     let transaction = Transaction::new(
         source,
         recipient,
@@ -414,13 +426,71 @@ pub fn command_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
         command_secret_partial_parser,
         command_secret_full_parser,
         command_ping_parser,
-        command_obsg_parser,
+        command_obg_parser,
     ))(s)
+}
+
+fn hex_u32_parser(s: &[u8]) -> IResult<&[u8], u32> {
+    let (rest, out) = take_while_m_n(8, 8, is_hex_digit)(s)?;
+    let mut res: u32 = 0;
+    for i in 0..8 {
+        res <<= 4;
+        res |= unhex(out[i]).unwrap() as u32;
+    }
+    Ok((rest, res))
+}
+
+fn hex_i32_parser(s: &[u8]) -> IResult<&[u8], i32> {
+    let (rest, num) = hex_u32_parser(s)?;
+    Ok((rest, num as i32))
+}
+
+fn hex_u64_parser(s: &[u8]) -> IResult<&[u8], u64> {
+    let (rest, out) = take_while_m_n(16, 16, is_hex_digit)(s)?;
+    let mut res: u64 = 0;
+    for i in 0..16 {
+        res <<= 4;
+        res |= unhex(out[i]).unwrap() as u64;
+    }
+    Ok((rest, res))
+}
+
+pub fn rqa_obg1_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObservablesGroup1)> {
+    // RQAOBG,123,LNC,1,0BEBC200,00000000AA894CC8,000669E2
+    let (rest, (source, _, command_id, _, recipient, _, clkfreq, _, timestamp, _, adc0)) =
+        tuple((
+            node_parser,
+            tag(b"OBG,"),
+            command_id_parser,
+            tag(b","),
+            node_parser,
+            tag(",1,"),
+            hex_u32_parser,
+            tag(","),
+            hex_u64_parser,
+            tag(","),
+            hex_i32_parser,
+        ))(s)?;
+    Ok((
+        rest,
+        (
+            source,
+            command_id,
+            recipient,
+            RawObservablesGroup1 {
+                clkfreq: ClkFreq(clkfreq),
+                uptime: Timestamp(timestamp),
+                thrust: Ads1256Reading(adc0),
+            },
+        ),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use std::assert_matches::assert_matches;
+
+    use crate::observables::rqa::RawObservablesGroup1;
 
     use super::*;
 
@@ -636,7 +706,7 @@ mod tests {
 
     #[test]
     fn test_return_argument_parsing() {
-        assert_matches!(one_return_value_parser(b",3F"), Ok((b"", 0x3f)));
+        assert_matches!(one_hex_return_value_parser(b",3F"), Ok((b"", 0x3f)));
         assert_matches!(two_return_values_parser(b",AB,CD"), Ok((b"", (0xab, 0xcd))));
     }
 
@@ -682,7 +752,7 @@ mod tests {
             ))
         );
         assert_matches!(
-            command_parser(b"LNCCMD,123,RQA,OBSG,01"),
+            command_parser(b"LNCCMD,123,RQA,OBG,01"),
             Ok((
                 b"",
                 Transaction {
@@ -724,8 +794,31 @@ mod tests {
 
     #[test]
     fn test_actual_response() {
-        // 2024-02-07T08:42:08.132Z DEBUG [control_frontend::state] got sentence
-        //     $LNCCMD,001,RQA,RESET*01
         assert_matches!(ack_parser(b"RQAACK,001,LNC,RESET"), Ok(_));
+    }
+
+    #[test]
+    fn test_usize_parser() {
+        assert_matches!(usize_parser(b"1"), Ok((b"", 1)));
+    }
+
+    #[test]
+    fn test_obg1_parser() {
+        assert_matches!(
+            rqa_obg1_parser(b"RQAOBG,123,LNC,1,0BEBC200,00000000AA894CC8,FFFFFFFF"),
+            Ok((
+                b"",
+                (
+                    Node::RedQueen(b'A'),
+                    123,
+                    Node::LaunchControl,
+                    RawObservablesGroup1 {
+                        clkfreq: ClkFreq(0x0BEBC200),
+                        uptime: Timestamp(0x00000000AA894CC8),
+                        thrust: Ads1256Reading(-1),
+                    }
+                )
+            ))
+        );
     }
 }

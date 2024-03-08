@@ -1,8 +1,12 @@
 use std::{fmt::Display, ops::Range, time::Duration};
 
-use crate::rqparser::{
-    ack_parser, command_parser, nibble_to_hex, one_return_value_parser, two_return_values_parser,
-    verify_nmea_format, NMEAFormatError, NMEAFormatter, MAX_BUFFER_SIZE,
+use crate::{
+    observables::rqa::RawObservablesGroup1,
+    rqparser::{
+        ack_parser, command_parser, nibble_to_hex, one_hex_return_value_parser,
+        one_usize_return_value_parser, rqa_obg1_parser, two_return_values_parser,
+        verify_nmea_format, NMEAFormatError, NMEAFormatter, MAX_BUFFER_SIZE,
+    },
 };
 
 #[derive(Debug, PartialEq)]
@@ -57,7 +61,7 @@ pub enum Command {
     LaunchSecretFull(u8, u8),
     Ignition,
     Ping,
-    ObservableGroup(u8),
+    ObservableGroup(usize),
 }
 
 impl Display for Error {
@@ -73,6 +77,7 @@ pub enum Response {
     LaunchSecretFullAck,
     LaunchSecretPartialAck,
     PingAck,
+    ObservableGroup(RawObservablesGroup1),
     ObservableGroupAck,
 }
 
@@ -82,7 +87,7 @@ enum CommandProcessor {
     LaunchSecretFull(u8, u8),
     IgnitionAck,
     PingAck,
-    ObservableGroupAck(u8),
+    ObservableGroupAck(usize),
 }
 
 impl Command {
@@ -93,7 +98,7 @@ impl Command {
             Command::LaunchSecretFull(_, _) => b"SECRET_AB",
             Command::Ignition => b"IGNITION",
             Command::Ping => b"PING",
-            Command::ObservableGroup(_) => b"OBSG",
+            Command::ObservableGroup(_) => b"OBG",
         }
     }
 
@@ -113,7 +118,22 @@ impl Command {
         contents: &[u8],
     ) -> Result<(TransactionState, Response), Error> {
         match self {
+            Command::ObservableGroup(_group) => self.process_obg_response(transaction, contents),
             _ => self.process_immediate_response(transaction, contents),
+        }
+    }
+
+    fn process_obg_response(
+        &self,
+        transaction: &Transaction,
+        contents: &[u8],
+    ) -> Result<(TransactionState, Response), Error> {
+        match rqa_obg1_parser(contents) {
+            Ok((_rest, (_source, _command_id, _sender, obg1_raw))) => {
+                // TODO: a lot of checking!
+                Ok((TransactionState::Alive, Response::ObservableGroup(obg1_raw)))
+            }
+            Err(_) => self.process_immediate_response(transaction, contents),
         }
     }
 
@@ -292,6 +312,38 @@ fn u8_parameter(buffer: &mut [u8], range: Range<usize>, param: u8) -> Result<Ran
     Ok(range.start + 3..range.end)
 }
 
+fn number_length(value: usize) -> usize {
+    match value {
+        0 => 1,
+        _ => {
+            let mut res = 0;
+            let mut value = value;
+            while value > 0 {
+                res += 1;
+                value /= 10;
+            }
+            res
+        }
+    }
+}
+
+fn usize_parameter(
+    buffer: &mut [u8],
+    range: Range<usize>,
+    param: usize,
+) -> Result<Range<usize>, Error> {
+    let len = number_length(param);
+    range_check_buffer_for_length(&range, buffer, len)?;
+    let mut data: [u8; 22] = [b','; 22]; // ceil(log10(2**64)) + 1
+    let mut value = param;
+    for i in 0..len {
+        data[len - i] = b'0' + (value % 10) as u8;
+        value /= 10;
+    }
+    buffer[range.clone()][0..len + 1].copy_from_slice(&data[0..len + 1]);
+    Ok(range.start + len + 1..range.end)
+}
+
 impl Marshal for Command {
     fn to_command<'a>(
         &self,
@@ -307,7 +359,7 @@ impl Marshal for Command {
             }
             Command::Ignition => Ok(range),
             Command::Ping => Ok(range),
-            Command::ObservableGroup(group) => u8_parameter(buffer, range, *group),
+            Command::ObservableGroup(group) => usize_parameter(buffer, range, *group),
         }
     }
 
@@ -427,7 +479,7 @@ impl CommandProcessor {
     fn process_response<'a>(&self, params: &'a [u8]) -> Result<(&'a [u8], Response), Error> {
         match self {
             CommandProcessor::LaunchSecretPartial(a) => {
-                let (rest, param) = one_return_value_parser(params)?;
+                let (rest, param) = one_hex_return_value_parser(params)?;
                 if param == *a {
                     Ok((rest, Response::LaunchSecretPartialAck))
                 } else {
@@ -446,8 +498,8 @@ impl CommandProcessor {
             CommandProcessor::IgnitionAck => Ok((params, Response::IgnitionAck)),
             CommandProcessor::PingAck => Ok((params, Response::PingAck)),
             CommandProcessor::ObservableGroupAck(g) => {
-                let (rest, param) = one_return_value_parser(params)?;
-                if param == *g {
+                let (rest, param) = one_usize_return_value_parser(params)?;
+                if param as usize == *g {
                     Ok((rest, Response::ObservableGroupAck))
                 } else {
                     Err(Error::ParseError)
@@ -528,17 +580,40 @@ mod tests {
 
     #[test]
     fn test_observable_group_immediate_ack() {
-        let mut t = Transaction::from_sentence(b"LNCCMD,123,RQA,OBSG,01").unwrap();
-
+        let mut t = Transaction::from_sentence(b"LNCCMD,123,RQA,OBG,1").unwrap();
+        if let Command::ObservableGroup(group_id) = t.command {
+            assert_eq!(group_id, 1);
+        }
         let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
         let result = t.commandeer(&mut dest).unwrap();
-        assert_eq!(result, b"$LNCCMD,123,RQA,OBSG,01*61\r\n".as_slice());
+        assert_eq!(result, b"$LNCCMD,123,RQA,OBG,1*02\r\n".as_slice());
         assert_eq!(
             t.acknowledge(&mut dest).unwrap(),
-            b"$RQAACK,123,LNC,01*57\r\n".as_slice()
+            b"$RQAACK,123,LNC,1*67\r\n".as_slice()
         );
-        assert_matches!(t.process_response(b"$RQAACK,123,LNC,01*57\r\n"), Ok(_),);
+        assert_matches!(t.process_response(b"$RQAACK,123,LNC,1*67\r\n"), Ok(_),);
         assert_eq!(t.state(), TransactionState::Dead);
+    }
+
+    #[test]
+    fn test_observable_group_with_group_result_and_then_ack() {
+        let mut t = Transaction::from_sentence(b"LNCCMD,123,RQA,OBG,1").unwrap();
+        if let Command::ObservableGroup(group_id) = t.command {
+            assert_eq!(group_id, 1);
+        }
+        let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
+        let result = t.commandeer(&mut dest).unwrap();
+        assert_eq!(result, b"$LNCCMD,123,RQA,OBG,1*02\r\n".as_slice());
+        //
+        assert_eq!(
+            t.acknowledge(&mut dest).unwrap(),
+            b"$RQAACK,123,LNC,1*67\r\n".as_slice()
+        );
+        assert_matches!(
+            t.process_response(b"$RQAOBG,123,LNC,1,0BEBC200,00000000AA894CC8,000669E2*3F\r\n"),
+            Ok(Response::ObservableGroup(..)),
+        );
+        assert_eq!(t.state(), TransactionState::Alive);
     }
 
     #[test]
@@ -561,5 +636,28 @@ mod tests {
         assert_matches!(sender.to_command(&mut dest, 7..10), Ok(_));
         assert_eq!(&dest[7..10], b"LNC");
         assert_matches!(sender.to_command(&mut dest, 0..2), Err(_));
+    }
+
+    #[test]
+    fn test_number_length() {
+        assert_eq!(number_length(0), 1);
+        assert_eq!(number_length(7), 1);
+        assert_eq!(number_length(10), 2);
+        assert_eq!(number_length(123456), 6);
+    }
+
+    #[test]
+    fn test_usize_parameter() {
+        let mut data = [0; 20];
+        let len = data.len();
+        let r = usize_parameter(&mut data, 0..len, 10);
+        assert_eq!(r, Ok(3..20));
+        assert_eq!(b",10", &data[0..3]);
+        let r = usize_parameter(&mut data, 0..len, 123);
+        assert_eq!(r, Ok(4..20));
+        assert_eq!(b",123", &data[0..4]);
+        let r = usize_parameter(&mut data, 0..len, 0);
+        assert_eq!(r, Ok(2..20));
+        assert_eq!(b",0", &data[0..2]);
     }
 }
