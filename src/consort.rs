@@ -161,8 +161,9 @@ where
             match &mut self.transaction {
                 Some(transaction) => {
                     let result = Ok(Some(transaction.process_response(sentence.as_slice())?));
-                    assert!(transaction.state() == TransactionState::Dead);
-                    self.transaction = None;
+                    if transaction.state() == TransactionState::Dead {
+                        self.transaction = None;
+                    }
                     return result;
                 }
                 // We don't expect data

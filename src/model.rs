@@ -96,6 +96,7 @@ pub enum ObservablesState {
     Failure,
     Reset,
     Idle,
+    QueryObservables,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -139,6 +140,12 @@ pub trait StateProcessing {
     fn drive(&self) -> Self::State;
 
     fn connected(&self) -> bool;
+
+    fn is_start(&self) -> bool;
+
+    fn reset_mode(&self) -> Self::State;
+
+    fn failure_mode(&self) -> Self::State;
 }
 
 impl StateProcessing for LaunchControlState {
@@ -207,6 +214,13 @@ impl StateProcessing for LaunchControlState {
     fn is_failure(&self) -> bool {
         match self {
             Self::State::Failure => true,
+            _ => false,
+        }
+    }
+
+    fn is_start(&self) -> bool {
+        match self {
+            Self::State::Start => true,
             _ => false,
         }
     }
@@ -317,13 +331,29 @@ impl StateProcessing for LaunchControlState {
             _ => true,
         }
     }
+
+    fn reset_mode(&self) -> Self::State {
+        Self::State::Reset
+    }
+
+    fn failure_mode(&self) -> Self::State {
+        Self::State::Failure
+    }
 }
 
 impl StateProcessing for ObservablesState {
     type State = ObservablesState;
 
-    fn process_response(&self, _response: Response) -> Self::State {
-        *self
+    fn process_response(&self, response: Response) -> Self::State {
+        match self {
+            ObservablesState::Failure => todo!(),
+            ObservablesState::Reset => match response {
+                Response::ResetAck => Self::State::Idle,
+                _ => Self::State::Start,
+            },
+            ObservablesState::Idle => ObservablesState::QueryObservables,
+            _ => *self,
+        }
     }
 
     fn name(&self) -> &str {
@@ -332,12 +362,20 @@ impl StateProcessing for ObservablesState {
             Self::State::Failure => "Failure",
             Self::State::Reset => "Reset",
             Self::State::Idle => "Idle",
+            Self::QueryObservables => "Observables",
         }
     }
 
     fn is_failure(&self) -> bool {
         match self {
             Self::State::Failure => true,
+            _ => false,
+        }
+    }
+
+    fn is_start(&self) -> bool {
+        match self {
+            Self::State::Start => true,
             _ => false,
         }
     }
@@ -350,11 +388,17 @@ impl StateProcessing for ObservablesState {
     }
 
     fn process_mode_change(&self) -> Option<Command> {
-        None
+        match self {
+            ObservablesState::QueryObservables => Some(Command::ObservableGroup(1)),
+            _ => None,
+        }
     }
 
     fn drive(&self) -> Self {
-        *self
+        match self {
+            ObservablesState::Idle => ObservablesState::QueryObservables,
+            _ => *self,
+        }
     }
 
     fn connected(&self) -> bool {
@@ -362,8 +406,16 @@ impl StateProcessing for ObservablesState {
             ObservablesState::Start => false,
             ObservablesState::Failure => false,
             ObservablesState::Reset => false,
-            ObservablesState::Idle => true,
+            _ => true,
         }
+    }
+
+    fn reset_mode(&self) -> Self::State {
+        Self::State::Reset
+    }
+
+    fn failure_mode(&self) -> Self::State {
+        Self::State::Failure
     }
 }
 
@@ -388,6 +440,13 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => state.is_failure(),
             Mode::LaunchControl(state) => state.is_failure(),
+        }
+    }
+
+    fn is_start(&self) -> bool {
+        match self {
+            Mode::Observables(state) => state.is_start(),
+            Mode::LaunchControl(state) => state.is_start(),
         }
     }
 
@@ -422,6 +481,20 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => state.connected(),
             Mode::LaunchControl(state) => state.connected(),
+        }
+    }
+
+    fn reset_mode(&self) -> Self::State {
+        match self {
+            Mode::Observables(state) => Mode::Observables(state.reset_mode()),
+            Mode::LaunchControl(state) => Mode::LaunchControl(state.reset_mode()),
+        }
+    }
+
+    fn failure_mode(&self) -> Self::State {
+        match self {
+            Mode::Observables(state) => Mode::Observables(state.failure_mode()),
+            Mode::LaunchControl(state) => Mode::LaunchControl(state.failure_mode()),
         }
     }
 }
@@ -752,18 +825,9 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
         self.now = now;
         self.consort.update_time(now);
         // When we are in start state, start a reset cycle
-        match self.mode {
-            Mode::Observables(ObservablesState::Start) => {
-                debug!("Resetting because we are in Start");
-                self.reset();
-                return Ok(());
-            }
-            Mode::LaunchControl(LaunchControlState::Start) => {
-                debug!("Resetting because we are in Start");
-                self.reset();
-                return Ok(());
-            }
-            _ => {}
+        if self.mode.is_start() {
+            self.reset();
+            return Ok(());
         }
 
         let mut ringbuffer = AllocRingBuffer::new(MAX_BUFFER_SIZE);
@@ -786,12 +850,13 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
         if timeout {
             self.reset();
         } else if error {
-            self.mode = Mode::LaunchControl(LaunchControlState::Failure);
+            self.mode = self.mode.failure_mode();
         } else {
             while !ringbuffer.is_empty() {
                 match self.consort.feed(&mut ringbuffer) {
                     Ok(response) => {
                         if let Some(response) = response {
+                            debug!("process_response: {:?}", response);
                             self.process_response(response);
                         }
                     }
@@ -803,30 +868,24 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
                 }
             }
         }
-        self.mode = self.mode.drive();
+        self.set_mode(self.mode.drive());
         Ok(())
     }
 
     fn reset(&mut self) {
-        self.mode = match self.mode {
-            Mode::Observables(_) => Mode::Observables(ObservablesState::Reset),
-            Mode::LaunchControl(_) => Mode::LaunchControl(LaunchControlState::Reset),
-        };
+        self.mode = self.mode.reset_mode();
         self.consort.reset();
         match self.consort.send_command(Command::Reset, &mut self.module) {
             Ok(_) => {}
             Err(_) => {
                 error!("Resetting failed");
-                self.mode = match self.mode {
-                    Mode::Observables(_) => Mode::Observables(ObservablesState::Failure),
-                    Mode::LaunchControl(_) => Mode::LaunchControl(LaunchControlState::Failure),
-                }
+                self.mode = self.mode.failure_mode();
             }
         }
     }
 
     fn process_response(&mut self, response: Response) {
-        self.mode = self.mode.process_response(response);
+        self.set_mode(self.mode.process_response(response));
     }
 
     pub fn process_input_events(&mut self, events: &Vec<InputEvent>) {
@@ -858,14 +917,17 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
     fn process_details_event(&mut self, event: &InputEvent) -> ControlArea {
         debug!("process_detail_event: {:?}", event);
         let (mode, control_area) = self.mode.process_event(event);
-        if self.mode != mode {
-            self.mode = mode;
-            self.process_mode_change();
-        }
-
+        self.set_mode(mode);
         control_area
     }
 
+    fn set_mode(&mut self, mode: Mode) {
+        if self.mode != mode {
+            debug!("old mode: {:?}, new mode: {:?}", self.mode, mode);
+            self.mode = mode;
+            self.process_mode_change();
+        }
+    }
     fn process_mode_change(&mut self) {
         if let Some(command) = self.mode.process_mode_change() {
             if self
@@ -896,7 +958,6 @@ mod tests {
     use crate::consort::SimpleIdGenerator;
     use crate::rqparser::command_parser;
     use crate::rqprotocol::Node;
-    use std::assert_matches;
     use std::assert_matches::assert_matches;
 
     use super::*;
