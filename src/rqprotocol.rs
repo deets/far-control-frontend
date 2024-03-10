@@ -25,7 +25,7 @@ pub enum Error {
     FormatError(FormatErrorDetail),
     ParseError,
     Nak,
-    InvalidAssociation,
+    InvalidAssociation(Node, Node, usize, usize),
 }
 
 #[derive(Debug, PartialEq)]
@@ -162,7 +162,12 @@ impl Command {
                         Err(Error::FormatError(FormatErrorDetail::TrailingCharacters))
                     }
                 } else {
-                    Err(Error::InvalidAssociation)
+                    Err(Error::InvalidAssociation(
+                        source,
+                        recipient,
+                        id,
+                        transaction.id,
+                    ))
                 }
             }
             Acknowledgement::Nak(_) => Err(Error::Nak),

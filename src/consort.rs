@@ -1,3 +1,4 @@
+use log::error;
 #[cfg(test)]
 use mock_instant::Instant;
 #[cfg(not(test))]
@@ -43,7 +44,8 @@ impl From<NMEAFormatError<'_>> for Error {
 }
 
 impl From<ProtocolError> for Error {
-    fn from(_value: ProtocolError) -> Self {
+    fn from(value: ProtocolError) -> Self {
+        error!("ProtocolError: {:?}", value);
         Error::ProtocolError
     }
 }
