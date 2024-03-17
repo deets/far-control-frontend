@@ -1,10 +1,13 @@
 use crate::{
-    observables::{rqa::RawObservablesGroup1, Ads1256Reading, ClkFreq, Timestamp},
+    observables::{
+        rqa::{RawObservablesGroup, RawObservablesGroup1, RawObservablesGroup2},
+        Ads1256Reading, ClkFreq, Timestamp,
+    },
     rqprotocol::{AckHeader, Acknowledgement, Command, Node, RqTimestamp, Transaction},
 };
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while_m_n},
+    bytes::complete::{tag, take_till, take_while_m_n},
     character::{is_alphabetic, is_digit, is_hex_digit},
     multi::many1_count,
     sequence::{preceded, separated_pair, tuple},
@@ -486,6 +489,64 @@ pub fn rqa_obg1_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObserv
     ))
 }
 
+pub fn rqa_obg_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObservablesGroup)> {
+    match rqa_obg1_parser(s) {
+        Ok((rest, (source, command_id, recipient, obg1))) => Ok((
+            rest,
+            (
+                source,
+                command_id,
+                recipient,
+                RawObservablesGroup::OG1(obg1),
+            ),
+        )),
+        Err(_) => match rqa_obg2_parser(s) {
+            Ok((rest, (source, command_id, recipient, obg2))) => Ok((
+                rest,
+                (
+                    source,
+                    command_id,
+                    recipient,
+                    RawObservablesGroup::OG2(obg2),
+                ),
+            )),
+            Err(err) => Err(err),
+        },
+    }
+}
+
+fn string_parser(s: &[u8]) -> IResult<&[u8], Vec<u8>> {
+    let (rest, string) = take_till(|c| c == b'*' || c == b',')(s)?;
+    Ok((rest, string.into()))
+}
+
+pub fn rqa_obg2_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObservablesGroup2)> {
+    // RQAOBG,123,LNC,2,R,FOOBAR.TXT
+    let (rest, (source, _, command_id, _, recipient, _, state, _, filename_or_error)) = tuple((
+        node_parser,
+        tag(b"OBG,"),
+        command_id_parser,
+        tag(b","),
+        node_parser,
+        tag(",2,"),
+        alt((tag("E"), tag("P"), tag("U"), tag("R"))),
+        tag(","),
+        string_parser,
+    ))(s)?;
+    Ok((
+        rest,
+        (
+            source,
+            command_id,
+            recipient,
+            RawObservablesGroup2 {
+                state: state[0],
+                filename_or_error,
+            },
+        ),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use std::assert_matches::assert_matches;
@@ -817,6 +878,35 @@ mod tests {
                         uptime: Timestamp(0x00000000AA894CC8),
                         thrust: Ads1256Reading(-1),
                     }
+                )
+            ))
+        );
+    }
+
+    #[test]
+    fn test_string() {
+        let (rest, contents) = string_parser(b"TEST.DAT").unwrap();
+        assert_eq!(contents.as_slice(), b"TEST.DAT");
+        assert_eq!(rest, b"");
+        let (rest, contents) = string_parser(b"TEST.DAT,").unwrap();
+        assert_eq!(contents.as_slice(), b"TEST.DAT");
+        assert_eq!(rest, b",");
+        let (rest, contents) = string_parser(b"TEST.DAT*").unwrap();
+        assert_eq!(contents.as_slice(), b"TEST.DAT");
+        assert_eq!(rest, b"*");
+    }
+
+    #[test]
+    fn test_obg2_parser() {
+        assert_matches!(
+            rqa_obg2_parser(b"RQAOBG,123,LNC,2,R,TEST.DAT"),
+            Ok((
+                b"",
+                (
+                    Node::RedQueen(b'A'),
+                    123,
+                    Node::LaunchControl,
+                    RawObservablesGroup2 { state: b'R', .. }
                 )
             ))
         );

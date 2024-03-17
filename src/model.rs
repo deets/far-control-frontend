@@ -14,6 +14,9 @@ use crate::{
     connection::{Answers, Connection},
     consort::{Consort, SimpleIdGenerator},
     input::InputEvent,
+    observables::rqa::{
+        ObservablesGroup1, ObservablesGroup2, RawObservablesGroup, SystemDefinition,
+    },
     rqparser::MAX_BUFFER_SIZE,
     rqprotocol::{Command, Response},
 };
@@ -96,7 +99,6 @@ pub enum ObservablesState {
     Failure,
     Reset,
     Idle,
-    QueryObservables,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -122,6 +124,8 @@ where
     module: C,
     start: Instant,
     now: Instant,
+    pub obg1: Option<ObservablesGroup1>,
+    pub obg2: Option<ObservablesGroup2>,
 }
 
 pub trait StateProcessing {
@@ -351,7 +355,6 @@ impl StateProcessing for ObservablesState {
                 Response::ResetAck => Self::State::Idle,
                 _ => Self::State::Start,
             },
-            ObservablesState::Idle => ObservablesState::QueryObservables,
             _ => *self,
         }
     }
@@ -362,7 +365,6 @@ impl StateProcessing for ObservablesState {
             Self::State::Failure => "Failure",
             Self::State::Reset => "Reset",
             Self::State::Idle => "Idle",
-            Self::QueryObservables => "Observables",
         }
     }
 
@@ -388,17 +390,11 @@ impl StateProcessing for ObservablesState {
     }
 
     fn process_mode_change(&self) -> Option<Command> {
-        match self {
-            ObservablesState::QueryObservables => Some(Command::ObservableGroup(1)),
-            _ => None,
-        }
+        None
     }
 
     fn drive(&self) -> Self {
-        match self {
-            ObservablesState::Idle => ObservablesState::QueryObservables,
-            _ => *self,
-        }
+        *self
     }
 
     fn connected(&self) -> bool {
@@ -810,6 +806,8 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
             start: now,
             now,
             module,
+            obg1: None,
+            obg2: None,
         }
     }
 
@@ -833,6 +831,7 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
         let mut ringbuffer = AllocRingBuffer::new(MAX_BUFFER_SIZE);
         let mut timeout = false;
         let mut error = false;
+        let mut observables = None;
         self.module.recv(|answer| match answer {
             Answers::Received(sentence) => {
                 for c in sentence {
@@ -845,8 +844,13 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
             Answers::ConnectionError => {
                 error = true;
             }
+            Answers::Observables(o) => {
+                observables = Some(o);
+            }
         });
-
+        if let Some(o) = observables {
+            self.process_observables(&o);
+        }
         if timeout {
             self.reset();
         } else if error {
@@ -885,9 +889,25 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
     }
 
     fn process_response(&mut self, response: Response) {
-        self.set_mode(self.mode.process_response(response));
+        if let Response::ObservableGroup(raw_observables) = response {
+            self.process_observables(&raw_observables)
+        } else {
+            self.set_mode(self.mode.process_response(response));
+        }
     }
 
+    fn process_observables(&mut self, raw: &RawObservablesGroup) {
+        match raw {
+            RawObservablesGroup::OG1(obg1) => {
+                let sys_def = SystemDefinition::default();
+                let obg1 = sys_def.transform_og1(obg1);
+                self.obg1 = Some(obg1);
+            }
+            RawObservablesGroup::OG2(obg2) => {
+                error!("{:?}", obg2);
+            }
+        }
+    }
     pub fn process_input_events(&mut self, events: &Vec<InputEvent>) {
         for event in events {
             self.process_input_event(event);

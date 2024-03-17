@@ -1,10 +1,10 @@
 use std::{fmt::Display, ops::Range, time::Duration};
 
 use crate::{
-    observables::rqa::RawObservablesGroup1,
+    observables::rqa::RawObservablesGroup,
     rqparser::{
         ack_parser, command_parser, nibble_to_hex, one_hex_return_value_parser,
-        one_usize_return_value_parser, rqa_obg1_parser, two_return_values_parser,
+        one_usize_return_value_parser, rqa_obg_parser, two_return_values_parser,
         verify_nmea_format, NMEAFormatError, NMEAFormatter, MAX_BUFFER_SIZE,
     },
 };
@@ -70,14 +70,14 @@ impl Display for Error {
     }
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Response {
     ResetAck,
     IgnitionAck,
     LaunchSecretFullAck,
     LaunchSecretPartialAck,
     PingAck,
-    ObservableGroup(RawObservablesGroup1),
+    ObservableGroup(RawObservablesGroup),
     ObservableGroupAck,
 }
 
@@ -128,10 +128,10 @@ impl Command {
         transaction: &Transaction,
         contents: &[u8],
     ) -> Result<(TransactionState, Response), Error> {
-        match rqa_obg1_parser(contents) {
-            Ok((_rest, (_source, _command_id, _sender, obg1_raw))) => {
+        match rqa_obg_parser(contents) {
+            Ok((_rest, (_source, _command_id, _sender, raw))) => {
                 // TODO: a lot of checking!
-                Ok((TransactionState::Alive, Response::ObservableGroup(obg1_raw)))
+                Ok((TransactionState::Alive, Response::ObservableGroup(raw)))
             }
             Err(_) => self.process_immediate_response(transaction, contents),
         }

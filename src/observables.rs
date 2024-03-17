@@ -31,11 +31,31 @@ pub mod rqa {
         pub thrust: Ads1256Reading,
     }
 
+    #[derive(Clone, PartialEq, Debug)]
+    pub struct RawObservablesGroup2 {
+        pub state: u8,
+        pub filename_or_error: Vec<u8>,
+    }
+
+    #[derive(Clone, PartialEq, Debug)]
+    pub enum RawObservablesGroup {
+        OG1(RawObservablesGroup1),
+        OG2(RawObservablesGroup2),
+    }
+
     #[derive(Copy, Clone, PartialEq, Debug)]
     pub struct ObservablesGroup1 {
         pub clkfreq: ClkFreq,
         pub uptime: Duration,
         pub thrust: Mass,
+    }
+
+    #[derive(Clone, PartialEq, Debug)]
+    pub enum ObservablesGroup2 {
+        Unknown,
+        Error(String),
+        Pause,
+        Recording(String),
     }
 
     pub struct SystemDefinition {
@@ -54,13 +74,31 @@ pub mod rqa {
     }
 
     impl SystemDefinition {
-        pub fn observables(&self, raw: &RawObservablesGroup1) -> ObservablesGroup1 {
+        pub fn transform_og1(&self, raw: &RawObservablesGroup1) -> ObservablesGroup1 {
             let uptime = raw.uptime.duration(&raw.clkfreq);
             let thrust = self.thrust_calibration.weight(raw.thrust.clone());
             ObservablesGroup1 {
                 clkfreq: raw.clkfreq,
                 uptime,
                 thrust,
+            }
+        }
+
+        pub fn transform_og2(&self, raw: &RawObservablesGroup2) -> ObservablesGroup2 {
+            match raw.state {
+                b'U' => ObservablesGroup2::Unknown,
+                b'P' => ObservablesGroup2::Pause,
+                b'E' => ObservablesGroup2::Error(
+                    std::str::from_utf8(&raw.filename_or_error)
+                        .unwrap()
+                        .to_string(),
+                ),
+                b'R' => ObservablesGroup2::Recording(
+                    std::str::from_utf8(&raw.filename_or_error)
+                        .unwrap()
+                        .to_string(),
+                ),
+                _ => unreachable!(),
             }
         }
     }

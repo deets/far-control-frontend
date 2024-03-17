@@ -1,10 +1,14 @@
+use std::time::Duration;
+
 use egui::epaint::Shadow;
 use egui::{vec2, Align2, Color32, FontId, Frame, Id, ProgressBar, RichText, Sense, Stroke, Ui};
 use emath::{pos2, Pos2};
 use palette::{Gradient, LinSrgb};
+use uom::si::f64::Mass;
 
 use crate::connection::Connection;
 use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing};
+use crate::observables::rqa::ObservablesGroup1;
 
 // fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
 //     let lt = rect.left_top();
@@ -132,9 +136,43 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
     });
 }
 
+fn render_uptime(ui: &mut Ui, uptime: Duration) {
+    let secs = uptime.as_secs_f64();
+    ui.label(RichText::new(format!("{}", secs)).heading());
+}
+
+fn render_thrust(ui: &mut Ui, thrust: Mass) {
+    ui.label(RichText::new(format!("{:?}", thrust)).heading());
+}
+
+fn render_observables(ui: &mut Ui, obg1: &Option<ObservablesGroup1>) {
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            egui::SidePanel::left("timestamp")
+                .exact_width(ui.available_width() / 5.0)
+                .show_inside(ui, |ui| {
+                    ui.label(RichText::new("Timestamp").heading());
+                });
+            if let Some(obg1) = obg1 {
+                render_uptime(ui, obg1.uptime);
+            }
+        });
+        ui.horizontal(|ui| {
+            egui::SidePanel::left("thrust")
+                .exact_width(ui.available_width() / 5.0)
+                .show_inside(ui, |ui| {
+                    ui.label(RichText::new("Thrust").heading());
+                });
+            if let Some(obg1) = obg1 {
+                render_thrust(ui, obg1.thrust);
+            }
+        });
+    });
+}
+
 fn render_body<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, state: &Model<C, Id>) {
     match state.mode {
-        Mode::Observables(_state) => {}
+        Mode::Observables(_state) => render_observables(ui, &state.obg1),
         Mode::LaunchControl(state) => {
             render_launch_control(ui, &state);
         }

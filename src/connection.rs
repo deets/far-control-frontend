@@ -1,6 +1,9 @@
+use crate::observables::rqa::RawObservablesGroup;
+
 #[derive(Debug, PartialEq)]
 pub enum Answers {
     Received(Vec<u8>),
+    Observables(RawObservablesGroup),
     Timeout,
     ConnectionError,
 }

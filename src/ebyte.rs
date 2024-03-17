@@ -17,7 +17,7 @@ use std::{
 use crate::{
     connection::{Answers, Connection},
     rqparser::{SentenceParser, MAX_BUFFER_SIZE},
-    rqprotocol::{Command, Node, Transaction},
+    rqprotocol::{Command, Node, Response, Transaction},
 };
 
 const ANSWER_TIMEOUT: Duration = Duration::from_millis(100);
@@ -118,7 +118,10 @@ where
     fn work(&mut self) {
         let mut module = None;
         loop {
-            match self.command_receiver.recv_timeout(Duration::from_secs(2)) {
+            match self
+                .command_receiver
+                .recv_timeout(Duration::from_millis(100))
+            {
                 Ok(m) => match m {
                     Commands::Quit => {
                         break;
@@ -133,7 +136,15 @@ where
                     Commands::Send(data) => match &mut module {
                         Some(module) => {
                             debug!("sending {}", std::str::from_utf8(&data).unwrap());
-                            self.send_and_wait_for_response(module, &data, false);
+                            module.write_buffer(&data).expect("can't send data");
+                            if Self::receive_sentence_or_timeout(module, |sentence| {
+                                debug!("sending data into main thread");
+                                self.response_sender
+                                    .send(Answers::Received(sentence.clone()))
+                                    .expect("can't ack data");
+                            }) {
+                                self.send_timeout();
+                            }
                         }
                         None => {
                             error!("No open E32 connection");
@@ -148,11 +159,39 @@ where
                 Err(RecvTimeoutError::Timeout) => {
                     if let Some(module) = &mut module {
                         let id = self.command_id_generator.next().unwrap();
-                        let t = Transaction::new(self.me, self.target_red_queen, id, Command::Ping);
-                        debug!("Send ping {}", id);
+                        let obg = (id % 2) + 1;
+                        let mut t = Transaction::new(
+                            self.me,
+                            self.target_red_queen,
+                            id,
+                            Command::ObservableGroup(obg),
+                        );
+                        debug!("Send obg{} {}", obg, id);
                         let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
                         let result = t.commandeer(&mut dest).unwrap();
-                        self.send_and_wait_for_response(module, result, true);
+                        module.write_buffer(result).expect("can't send data");
+                        // First come the observables, so we relay them
+                        if Self::receive_sentence_or_timeout(module, |sentence| {
+                            if let Response::ObservableGroup(observables) =
+                                t.process_response(sentence).unwrap()
+                            {
+                                self.response_sender
+                                    .send(Answers::Observables(observables))
+                                    .unwrap();
+                            }
+                        }) {
+                            debug!("timeout getting OBG{} data", obg);
+                            self.send_timeout();
+                        } else {
+                            // now the ack is supposed to happen
+                            if Self::receive_sentence_or_timeout(module, |sentence| {
+                                let _ = t.process_response(sentence);
+                            }) {
+                                debug!("timeout getting OBG{} ack", obg);
+                                self.send_timeout();
+                            }
+                        }
+                        debug!("finished obg{} keepalive", obg);
                     }
                 }
                 Err(_) => {
@@ -162,59 +201,51 @@ where
         }
     }
 
-    fn send_and_wait_for_response(
-        &mut self,
-        module: &mut E32Module,
-        data: &[u8],
-        suppress_response: bool,
-    ) {
-        let last_comm = Instant::now();
-        let mut count = 0;
-        module.write_buffer(&data).expect("can't send data");
-        loop {
-            match block!(module.read()) {
-                Ok(b) => {
-                    debug!("rx: {}", b as char);
-                    let mut sentence: Option<Vec<u8>> = None;
-                    self.sentence_parser
-                        .feed(&[b], |sentence_| sentence = Some(sentence_.to_vec()))
-                        .expect("error parsing sentence");
-                    if let Some(sentence) = sentence {
-                        if !suppress_response {
-                            debug!("sending data into main thread");
-                            self.response_sender
-                                .send(Answers::Received(sentence.into()))
-                                .expect("can't ack data");
-                        }
-                        return;
-                    }
-                }
-                Err(err) => {
-                    match err.kind() {
-                        std::io::ErrorKind::TimedOut => {
-                            debug!("{:?}", last_comm.elapsed());
-                            // if last_comm.elapsed() > Duration::from_millis(500) {
-                            //     warn!("ACK timed out");
-                            //     self.response_sender
-                            //         .send(Answers::Timeout)
-                            //         .expect("cross beam unhappy");
-                            // }
-                            count += 1;
-                            if count > 50 {
-                                break;
-                            }
-                        }
-                        _ => {
-                            error!("Unhandled error: {:?}", err);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
+    fn send_timeout(&mut self) {
         self.response_sender
             .send(Answers::Timeout)
             .expect("can't ack data");
+    }
+
+    fn receive_sentence_or_timeout(
+        module: &mut E32Module,
+        callback: impl FnOnce(&Vec<u8>),
+    ) -> bool {
+        let last_comm = Instant::now();
+        let mut count = 0;
+        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
+        let mut sentence_parser = SentenceParser::new(&mut ringbuffer);
+
+        loop {
+            match block!(module.read()) {
+                Ok(b) => {
+                    let mut sentence: Option<Vec<u8>> = None;
+                    // debug!("rx: {}", b as char);
+                    sentence_parser
+                        .feed(&[b], |sentence_| sentence = Some(sentence_.to_vec()))
+                        .expect("error parsing sentence");
+                    if let Some(sentence) = sentence {
+                        debug!("got sentence: {}", std::str::from_utf8(&sentence).unwrap());
+                        callback(&sentence);
+                        return false;
+                    }
+                }
+                Err(err) => match err.kind() {
+                    std::io::ErrorKind::TimedOut => {
+                        debug!("{:?}", last_comm.elapsed());
+                        count += 1;
+                        if count > 50 {
+                            break;
+                        }
+                    }
+                    _ => {
+                        error!("Unhandled error: {:?}", err);
+                        break;
+                    }
+                },
+            }
+        }
+        true
     }
 }
 
