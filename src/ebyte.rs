@@ -158,40 +158,7 @@ where
                 },
                 Err(RecvTimeoutError::Timeout) => {
                     if let Some(module) = &mut module {
-                        let id = self.command_id_generator.next().unwrap();
-                        let obg = (id % 2) + 1;
-                        let mut t = Transaction::new(
-                            self.me,
-                            self.target_red_queen,
-                            id,
-                            Command::ObservableGroup(obg),
-                        );
-                        debug!("Send obg{} {}", obg, id);
-                        let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
-                        let result = t.commandeer(&mut dest).unwrap();
-                        module.write_buffer(result).expect("can't send data");
-                        // First come the observables, so we relay them
-                        if Self::receive_sentence_or_timeout(module, |sentence| {
-                            if let Response::ObservableGroup(observables) =
-                                t.process_response(sentence).unwrap()
-                            {
-                                self.response_sender
-                                    .send(Answers::Observables(observables))
-                                    .unwrap();
-                            }
-                        }) {
-                            debug!("timeout getting OBG{} data", obg);
-                            self.send_timeout();
-                        } else {
-                            // now the ack is supposed to happen
-                            if Self::receive_sentence_or_timeout(module, |sentence| {
-                                let _ = t.process_response(sentence);
-                            }) {
-                                debug!("timeout getting OBG{} ack", obg);
-                                self.send_timeout();
-                            }
-                        }
-                        debug!("finished obg{} keepalive", obg);
+                        self.fetch_observables(module);
                     }
                 }
                 Err(_) => {
@@ -199,6 +166,49 @@ where
                 }
             }
         }
+    }
+
+    fn fetch_observables(&mut self, module: &mut E32Module) {
+        let id = self.command_id_generator.next().unwrap();
+        let obg = if id % 5 == 0 { 2 } else { 1 };
+        let mut t = Transaction::new(
+            self.me,
+            self.target_red_queen,
+            id,
+            Command::ObservableGroup(obg),
+        );
+        debug!("Send obg{} {}", obg, id);
+        let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
+        let result = t.commandeer(&mut dest).unwrap();
+        module.write_buffer(result).expect("can't send data");
+        // First come the observables, so we relay them
+        if Self::receive_sentence_or_timeout(module, |sentence| {
+            match t.process_response(sentence) {
+                Ok(response) => {
+                    if let Response::ObservableGroup(observables) = response {
+                        self.response_sender
+                            .send(Answers::Observables(observables))
+                            .unwrap();
+                    }
+                }
+                Err(_) => {
+                    self.response_sender.send(Answers::ConnectionError).unwrap();
+                    return;
+                }
+            }
+        }) {
+            debug!("timeout getting OBG{} data", obg);
+            self.send_timeout();
+        } else {
+            // now the ack is supposed to happen
+            if Self::receive_sentence_or_timeout(module, |sentence| {
+                let _ = t.process_response(sentence);
+            }) {
+                debug!("timeout getting OBG{} ack", obg);
+                self.send_timeout();
+            }
+        }
+        debug!("finished obg{} keepalive", obg);
     }
 
     fn send_timeout(&mut self) {
