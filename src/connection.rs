@@ -6,8 +6,10 @@ pub enum Answers {
     Observables(RawObservablesGroup),
     Timeout,
     ConnectionError,
+    Drained,
 }
 
 pub trait Connection: std::io::Write {
     fn recv(&mut self, callback: impl FnOnce(Answers));
+    fn drain(&mut self);
 }

@@ -831,6 +831,7 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
         let mut ringbuffer = AllocRingBuffer::new(MAX_BUFFER_SIZE);
         let mut timeout = false;
         let mut error = false;
+        let mut reset = false;
         let mut observables = None;
         self.module.recv(|answer| match answer {
             Answers::Received(sentence) => {
@@ -847,11 +848,16 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
             Answers::Observables(o) => {
                 observables = Some(o);
             }
+            Answers::Drained => {
+                reset = true;
+            }
         });
         if let Some(o) = observables {
             self.process_observables(&o);
         }
         if timeout {
+            self.module.drain();
+        } else if reset {
             self.reset();
         } else if error {
             self.mode = self.mode.failure_mode();
@@ -866,7 +872,7 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
                     }
                     Err(err) => {
                         error!("Feeding consort error: {:?}", err);
-                        self.reset();
+                        self.module.drain();
                         break;
                     }
                 }
@@ -882,7 +888,6 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
         match self.consort.send_command(Command::Reset, &mut self.module) {
             Ok(_) => {}
             Err(_) => {
-                error!("Resetting failed");
                 self.mode = self.mode.failure_mode();
             }
         }
@@ -948,6 +953,7 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
             self.process_mode_change();
         }
     }
+
     fn process_mode_change(&mut self) {
         if let Some(command) = self.mode.process_mode_change() {
             if self

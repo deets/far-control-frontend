@@ -3,7 +3,7 @@ use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender, TryRecvEr
 use ebyte_e32::{mode::Normal, Ebyte, Parameters};
 use ebyte_e32_ftdi::{CtsAux, M0Dtr, M1Rts, Serial, StandardDelay};
 use embedded_hal::serial::Read;
-use log::{debug, error};
+use log::{debug, error, warn};
 use nb::block;
 use ringbuffer::AllocRingBuffer;
 use serial_core::{BaudRate, CharSize, FlowControl, Parity, PortSettings, SerialPort, StopBits};
@@ -16,6 +16,7 @@ use std::{
 
 use crate::{
     connection::{Answers, Connection},
+    observables,
     rqparser::{SentenceParser, MAX_BUFFER_SIZE},
     rqprotocol::{Command, Node, Response, Transaction},
 };
@@ -28,6 +29,7 @@ pub type E32Module = Ebyte<Serial, CtsAux, M0Dtr, M1Rts, StandardDelay, Normal>;
 enum Commands {
     Open(String),
     Send(Vec<u8>),
+    Drain,
     Quit,
 }
 
@@ -103,6 +105,10 @@ impl Connection for E32Connection {
             }
         }
     }
+
+    fn drain(&mut self) {
+        self.command_sender.send(Commands::Drain).unwrap();
+    }
 }
 
 impl Drop for E32Connection {
@@ -155,6 +161,11 @@ where
                                 .expect("cc works");
                         }
                     },
+                    Commands::Drain => {
+                        if let Some(module) = &mut module {
+                            self.drain(module);
+                        }
+                    }
                 },
                 Err(RecvTimeoutError::Timeout) => {
                     if let Some(module) = &mut module {
@@ -166,6 +177,18 @@ where
                 }
             }
         }
+    }
+
+    // We just eat incoming bytes for 5 secs
+    // before we go back to resetting.
+    fn drain(&mut self, module: &mut E32Module) {
+        warn!("Draining");
+        let until = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < until {
+            let _ = block!(module.read());
+        }
+        warn!("Drained");
+        self.response_sender.send(Answers::Drained).unwrap();
     }
 
     fn fetch_observables(&mut self, module: &mut E32Module) {
@@ -261,6 +284,7 @@ where
 
 impl std::io::Write for E32Connection {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        debug!("write: {}", std::str::from_utf8(buf).unwrap());
         self.command_sender
             .send(Commands::Send(buf.into()))
             .expect("crossbeam always works");
