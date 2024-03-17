@@ -269,7 +269,7 @@ fn default_parameters() -> Parameters {
         channel: 0x17,
         uart_parity: ebyte_e32::parameters::Parity::None,
         uart_rate: ebyte_e32::parameters::BaudRate::Bps9600,
-        air_rate: ebyte_e32::parameters::AirBaudRate::Bps2400,
+        air_rate: ebyte_e32::parameters::AirBaudRate::Bps19200,
         transmission_mode: ebyte_e32::parameters::TransmissionMode::Transparent,
         io_drive_mode: ebyte_e32::parameters::IoDriveMode::PushPull,
         wakeup_time: ebyte_e32::parameters::WakeupTime::Ms250,
