@@ -1,10 +1,16 @@
-use std::{sync::Arc, time::Instant};
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#[cfg(feature = "sdl2")]
+use std::sync::Arc;
 
+use std::time::Instant;
+
+use control_frontend::connection::Connection;
 use control_frontend::consort::Consort;
 use control_frontend::input::InputEvent;
 use control_frontend::model::{Model, SharedIdGenerator};
 use control_frontend::render::render;
 use control_frontend::rqprotocol::Node;
+#[cfg(feature = "sdl2")]
 use control_frontend::timestep::TimeStep;
 
 #[cfg(feature = "e32")]
@@ -12,15 +18,108 @@ use control_frontend::ebyte::E32Connection;
 #[cfg(not(feature = "e32"))]
 use control_frontend::ebytemock::E32Connection;
 
-use egui_glow::glow::HasContext;
+use egui::Key;
+
+#[cfg(feature = "sdl2")]
 use egui_sdl2_platform::sdl2;
 use log::info;
+
+#[cfg(feature = "sdl2")]
 use sdl2::event::{Event, WindowEvent};
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 480;
 const DEVICE: &str = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0";
 
+#[cfg(feature = "eframe")]
+fn main() -> Result<(), eframe::Error> {
+    simple_logger::init_with_env().unwrap();
+
+    let id_generator = SharedIdGenerator::default();
+    let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
+    let options = eframe::NativeOptions {
+        initial_window_size: Some(egui::vec2(SCREEN_WIDTH as f32, SCREEN_HEIGHT as f32)),
+        ..Default::default()
+    };
+    info!("Opening E32 {}", DEVICE);
+    let conn = E32Connection::new(
+        DEVICE,
+        id_generator.clone(),
+        me.clone(),
+        target_red_queen.clone(),
+    )
+    .unwrap();
+
+    eframe::run_native(
+        "Launch Control",
+        options,
+        Box::new(|_cc| Box::new(LaunchControlApp::new(id_generator, conn))),
+    )
+}
+
+#[cfg(feature = "eframe")]
+struct LaunchControlApp<C, Id>
+where
+    C: Connection,
+    Id: Iterator<Item = usize>,
+{
+    model: Model<C, Id>,
+}
+
+#[cfg(feature = "eframe")]
+impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
+    fn new(id_generator: Id, conn: C) -> Self {
+        let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
+        let start_time = Instant::now();
+
+        let consort =
+            Consort::new_with_id_generator(me, target_red_queen, start_time, id_generator);
+        let model = Model::new(consort, conn, start_time);
+
+        Self { model }
+    }
+}
+
+#[cfg(feature = "eframe")]
+impl<C: Connection, Id: Iterator<Item = usize>> eframe::App for LaunchControlApp<C, Id> {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let mut input_events = vec![];
+        ctx.input(|i| {
+            if i.key_pressed(Key::ArrowRight) {
+                input_events.push(InputEvent::Right(10));
+            }
+            if i.key_pressed(Key::ArrowLeft) {
+                input_events.push(InputEvent::Left(10));
+            }
+            if i.key_pressed(Key::Enter) {
+                input_events.push(InputEvent::Enter);
+            }
+            if i.key_pressed(Key::Space) {
+                input_events.push(InputEvent::Enter);
+            }
+            if i.key_pressed(Key::Backspace) {
+                input_events.push(InputEvent::Back);
+            }
+            if i.key_pressed(Key::Escape) {
+                frame.close();
+            }
+        });
+
+        self.model.drive(Instant::now()).unwrap();
+        // Get the egui context and begin drawing the frame
+        // Draw an egui window
+        egui::Area::new("launch_control")
+            .fixed_pos([0.0, 0.0])
+            .constrain(true)
+            .movable(false)
+            .show(&ctx, |ui| {
+                render(ui, &self.model);
+            });
+        self.model.process_input_events(&input_events);
+    }
+}
+
+#[cfg(feature = "sdl2")]
 async fn run() -> anyhow::Result<()> {
     simple_logger::init_with_env().unwrap();
     info!("Opening E32 {}", DEVICE);
@@ -165,6 +264,7 @@ async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "sdl2")]
 fn main() -> anyhow::Result<()> {
     pollster::block_on(run())?;
     Ok(())

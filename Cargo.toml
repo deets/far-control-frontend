@@ -6,14 +6,18 @@ edition = "2021"
 default-run = "launch-control"
 
 [features]
-default = ["e32"]
+default = ["e32", "eframe"]
 e32 = ["dep:ebyte-e32", "dep:ebyte-e32-ftdi"]
+sdl2 = ["dep:egui_sdl2_platform"]
+eframe = ["dep:eframe"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 egui = { version="0.21" }#, path="/Users/deets/software/vc/egui/crates/egui" }
-egui_sdl2_platform = { version="0.2.2", path="./modules/egui_sdl2_platform" }
+egui_sdl2_platform = { version="0.2.2", path="./modules/egui_sdl2_platform", optional=true }
+eframe = { version="0.21", optional=true}
+
 gl = "*"
 egui_glow = "0.21"
 emath = "0.21"

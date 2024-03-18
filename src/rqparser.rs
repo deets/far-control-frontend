@@ -13,7 +13,7 @@ use nom::{
     sequence::{preceded, separated_pair, tuple},
     IResult,
 };
-use ringbuffer::RingBuffer;
+use ringbuffer::{AllocRingBuffer, RingBuffer};
 use std::time::Duration;
 
 const START_DELIMITER: u8 = b'$';
@@ -35,21 +35,17 @@ enum State {
 }
 
 #[derive(Debug)]
-pub struct SentenceParser<'a, RB> {
+pub struct SentenceParser {
     state: State,
-    ring_buffer: &'a mut RB,
+    ring_buffer: AllocRingBuffer<u8>,
     output_buffer: [u8; MAX_BUFFER_SIZE],
 }
 
-impl<'a, RB> SentenceParser<'a, RB>
-where
-    RB: RingBuffer<u8>,
-{
-    pub fn new(ring_buffer: &'a mut RB) -> Self {
-        ring_buffer.clear();
+impl SentenceParser {
+    pub fn new() -> Self {
         Self {
             state: State::WaitForStart,
-            ring_buffer,
+            ring_buffer: AllocRingBuffer::new(256),
             output_buffer: [0; MAX_BUFFER_SIZE],
         }
     }

@@ -28,10 +28,10 @@ pub enum Error {
 
 // Liaison to the RedQueen2
 #[derive(Debug)]
-pub struct Consort<'a, Id> {
+pub struct Consort<Id> {
     me: Node,
     dest: Node,
-    sentence_parser: SentenceParser<'a, AllocRingBuffer<u8>>,
+    sentence_parser: SentenceParser,
     transaction: Option<Transaction>,
     command_id_generator: Id,
     now: Instant,
@@ -90,18 +90,17 @@ impl Iterator for SimpleIdGenerator {
     }
 }
 
-impl<'a, Id> Consort<'a, Id>
+impl<Id> Consort<Id>
 where
     Id: Iterator<Item = usize>,
 {
     pub fn new_with_id_generator(
         me: Node,
         dest: Node,
-        ringbuffer: &'a mut AllocRingBuffer<u8>,
         now: Instant,
         command_id_generator: Id,
     ) -> Self {
-        let sentence_parser = SentenceParser::new(ringbuffer);
+        let sentence_parser = SentenceParser::new();
         Self {
             me,
             dest,

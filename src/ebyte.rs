@@ -32,10 +32,10 @@ enum Commands {
     Quit,
 }
 
-struct E32Worker<'a, Id> {
+struct E32Worker<Id> {
     command_receiver: Receiver<Commands>,
     response_sender: Sender<Answers>,
-    sentence_parser: SentenceParser<'a, AllocRingBuffer<u8>>,
+    sentence_parser: SentenceParser,
     command_id_generator: Id,
     me: Node,
     target_red_queen: Node,
@@ -59,8 +59,7 @@ impl E32Connection {
         let (command_sender, command_receiver) = unbounded::<Commands>();
         let (response_sender, response_receiver) = unbounded::<Answers>();
         let handle = thread::spawn(move || {
-            let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-            let sentence_parser = SentenceParser::new(&mut ringbuffer);
+            let sentence_parser = SentenceParser::new();
             let mut worker = E32Worker {
                 command_receiver,
                 response_sender,
@@ -116,7 +115,7 @@ impl Drop for E32Connection {
     }
 }
 
-impl<Id> E32Worker<'_, Id>
+impl<Id> E32Worker<Id>
 where
     Id: Iterator<Item = usize>,
 {
@@ -245,8 +244,7 @@ where
     ) -> bool {
         let last_comm = Instant::now();
         let mut count = 0;
-        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-        let mut sentence_parser = SentenceParser::new(&mut ringbuffer);
+        let mut sentence_parser = SentenceParser::new();
 
         loop {
             match block!(module.read()) {

@@ -113,14 +113,14 @@ pub enum ControlArea {
     Details,
 }
 
-pub struct Model<'a, C, Id>
+pub struct Model<C, Id>
 where
     C: Connection,
     Id: Iterator<Item = usize>,
 {
     pub mode: Mode,
     pub control: ControlArea,
-    pub consort: Consort<'a, Id>,
+    pub consort: Consort<Id>,
     module: C,
     start: Instant,
     now: Instant,
@@ -821,8 +821,8 @@ impl LaunchControlState {
     }
 }
 
-impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
-    pub fn new(consort: Consort<'a, Id>, module: C, now: Instant) -> Self {
+impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
+    pub fn new(consort: Consort<Id>, module: C, now: Instant) -> Self {
         Self {
             mode: Default::default(),
             control: Default::default(),

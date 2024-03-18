@@ -20,8 +20,7 @@ fn main() -> anyhow::Result<()> {
     simple_logger::init_with_env().unwrap();
     info!("Opening E32 {}", DEVICE);
     let mut conn = E32Connection::raw_module(DEVICE)?;
-    let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-    let mut sentence_parser = SentenceParser::new(&mut ringbuffer);
+    let mut sentence_parser = SentenceParser::new();
     loop {
         match block!(conn.read()) {
             Ok(b) => {
