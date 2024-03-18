@@ -150,6 +150,7 @@ pub trait StateProcessing {
     fn reset_mode(&self) -> Self::State;
 
     fn failure_mode(&self) -> Self::State;
+    fn reset_ongoing(&self) -> bool;
 }
 
 impl StateProcessing for LaunchControlState {
@@ -343,6 +344,14 @@ impl StateProcessing for LaunchControlState {
     fn failure_mode(&self) -> Self::State {
         Self::State::Failure
     }
+
+    fn reset_ongoing(&self) -> bool {
+        match self {
+            LaunchControlState::Start => true,
+            LaunchControlState::Reset => true,
+            _ => false,
+        }
+    }
 }
 
 impl StateProcessing for ObservablesState {
@@ -412,6 +421,14 @@ impl StateProcessing for ObservablesState {
 
     fn failure_mode(&self) -> Self::State {
         Self::State::Failure
+    }
+
+    fn reset_ongoing(&self) -> bool {
+        match self {
+            Self::Start => true,
+            Self::Reset => true,
+            _ => false,
+        }
     }
 }
 
@@ -491,6 +508,13 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => Mode::Observables(state.failure_mode()),
             Mode::LaunchControl(state) => Mode::LaunchControl(state.failure_mode()),
+        }
+    }
+
+    fn reset_ongoing(&self) -> bool {
+        match self {
+            Mode::Observables(state) => state.reset_ongoing(),
+            Mode::LaunchControl(state) => state.reset_ongoing(),
         }
     }
 }
@@ -967,10 +991,12 @@ impl<'a, C: Connection, Id: Iterator<Item = usize>> Model<'a, C, Id> {
     }
 
     fn toggle_tab(&mut self) -> ControlArea {
-        self.mode = match self.mode {
-            Mode::LaunchControl(_) => Mode::Observables(ObservablesState::Start),
-            Mode::Observables(_) => Mode::LaunchControl(LaunchControlState::Start),
-        };
+        if !self.mode.reset_ongoing() {
+            self.mode = match self.mode {
+                Mode::LaunchControl(_) => Mode::Observables(ObservablesState::Start),
+                Mode::Observables(_) => Mode::LaunchControl(LaunchControlState::Start),
+            }
+        }
         ControlArea::Tabs
     }
 
