@@ -16,7 +16,6 @@ use std::{
 
 use crate::{
     connection::{Answers, Connection},
-    observables,
     rqparser::{SentenceParser, MAX_BUFFER_SIZE},
     rqprotocol::{Command, Node, Response, Transaction},
 };
