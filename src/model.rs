@@ -926,14 +926,13 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
     }
 
     fn process_observables(&mut self, raw: &RawObservablesGroup) {
+        let sys_def = SystemDefinition::default();
         match raw {
             RawObservablesGroup::OG1(obg1) => {
-                let sys_def = SystemDefinition::default();
-                let obg1 = sys_def.transform_og1(obg1);
-                self.obg1 = Some(obg1);
+                self.obg1 = Some(sys_def.transform_og1(obg1));
             }
             RawObservablesGroup::OG2(obg2) => {
-                error!("{:?}", obg2);
+                self.obg2 = Some(sys_def.transform_og2(obg2));
             }
         }
     }

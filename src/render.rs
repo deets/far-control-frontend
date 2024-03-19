@@ -8,7 +8,7 @@ use uom::si::f64::Mass;
 
 use crate::connection::Connection;
 use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing};
-use crate::observables::rqa::ObservablesGroup1;
+use crate::observables::rqa::{ObservablesGroup1, ObservablesGroup2};
 
 // fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
 //     let lt = rect.left_top();
@@ -145,7 +145,21 @@ fn render_thrust(ui: &mut Ui, thrust: Mass) {
     ui.label(RichText::new(format!("{:?}", thrust)).heading());
 }
 
-fn render_observables(ui: &mut Ui, obg1: &Option<ObservablesGroup1>) {
+fn render_recording_state(ui: &mut Ui, recording_state: &ObservablesGroup2) {
+    let (text, color) = match recording_state {
+        ObservablesGroup2::Unknown => ("Unknown".to_string(), Color32::DARK_GRAY),
+        ObservablesGroup2::Error(text) => (text.clone(), Color32::RED),
+        ObservablesGroup2::Pause => ("Pause".to_string(), Color32::DARK_GRAY),
+        ObservablesGroup2::Recording(filename) => (filename.clone(), Color32::WHITE),
+    };
+    ui.label(RichText::new(text).heading().color(color));
+}
+
+fn render_observables(
+    ui: &mut Ui,
+    obg1: &Option<ObservablesGroup1>,
+    obg2: &Option<ObservablesGroup2>,
+) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             egui::SidePanel::left("timestamp")
@@ -167,12 +181,22 @@ fn render_observables(ui: &mut Ui, obg1: &Option<ObservablesGroup1>) {
                 render_thrust(ui, obg1.thrust);
             }
         });
+        ui.horizontal(|ui| {
+            egui::SidePanel::left("recording")
+                .exact_width(ui.available_width() / 5.0)
+                .show_inside(ui, |ui| {
+                    ui.label(RichText::new("Recording State").heading());
+                });
+            if let Some(obg2) = obg2 {
+                render_recording_state(ui, obg2);
+            }
+        });
     });
 }
 
 fn render_body<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, state: &Model<C, Id>) {
     match state.mode {
-        Mode::Observables(_state) => render_observables(ui, &state.obg1),
+        Mode::Observables(_state) => render_observables(ui, &state.obg1, &state.obg2),
         Mode::LaunchControl(state) => {
             render_launch_control(ui, &state);
         }
