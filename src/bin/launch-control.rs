@@ -31,6 +31,23 @@ const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 480;
 const DEVICE: &str = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0";
 
+fn serial_port_path() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() == 2 {
+        return args.get(1).cloned();
+    }
+    if std::path::Path::new(DEVICE).exists() {
+        return Some(DEVICE.to_string());
+    }
+    serialport::available_ports().ok().and_then(|ports| {
+        if ports.len() == 1 {
+            Some(ports[0].port_name.clone())
+        } else {
+            None
+        }
+    })
+}
+
 #[cfg(feature = "eframe")]
 fn main() -> Result<(), eframe::Error> {
     simple_logger::init_with_env().unwrap();
@@ -41,7 +58,6 @@ fn main() -> Result<(), eframe::Error> {
         initial_window_size: Some(egui::vec2(SCREEN_WIDTH as f32, SCREEN_HEIGHT as f32)),
         ..Default::default()
     };
-    info!("Opening E32 {}", DEVICE);
     let conn =
         E32Connection::new(id_generator.clone(), me.clone(), target_red_queen.clone()).unwrap();
 
@@ -69,7 +85,9 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
 
         let consort =
             Consort::new_with_id_generator(me, target_red_queen, start_time, id_generator);
-        let model = Model::new(consort, conn, start_time, DEVICE);
+        let port_path = serial_port_path().unwrap();
+        info!("Opening E32 {}", port_path);
+        let model = Model::new(consort, conn, start_time, &port_path);
 
         Self { model }
     }
