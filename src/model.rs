@@ -936,6 +936,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             }
         }
     }
+
     pub fn process_input_events(&mut self, events: &Vec<InputEvent>) {
         for event in events {
             self.process_input_event(event);

@@ -35,6 +35,7 @@ pub mod rqa {
     pub struct RawObservablesGroup2 {
         pub state: u8,
         pub filename_or_error: Vec<u8>,
+        pub anomalies: u32,
     }
 
     #[derive(Clone, PartialEq, Debug)]
@@ -51,11 +52,16 @@ pub mod rqa {
     }
 
     #[derive(Clone, PartialEq, Debug)]
-    pub enum ObservablesGroup2 {
+    pub enum RecordingState {
         Unknown,
         Error(String),
         Pause,
         Recording(String),
+    }
+
+    pub struct ObservablesGroup2 {
+        pub recording_state: RecordingState,
+        pub anomalies: u32,
     }
 
     pub struct SystemDefinition {
@@ -85,20 +91,24 @@ pub mod rqa {
         }
 
         pub fn transform_og2(&self, raw: &RawObservablesGroup2) -> ObservablesGroup2 {
-            match raw.state {
-                b'U' => ObservablesGroup2::Unknown,
-                b'P' => ObservablesGroup2::Pause,
-                b'E' => ObservablesGroup2::Error(
-                    std::str::from_utf8(&raw.filename_or_error)
-                        .unwrap()
-                        .to_string(),
-                ),
-                b'R' => ObservablesGroup2::Recording(
-                    std::str::from_utf8(&raw.filename_or_error)
-                        .unwrap()
-                        .to_string(),
-                ),
-                _ => unreachable!(),
+            let anomalies = raw.anomalies;
+            ObservablesGroup2 {
+                recording_state: match raw.state {
+                    b'U' => RecordingState::Unknown,
+                    b'P' => RecordingState::Pause,
+                    b'E' => RecordingState::Error(
+                        std::str::from_utf8(&raw.filename_or_error)
+                            .unwrap()
+                            .to_string(),
+                    ),
+                    b'R' => RecordingState::Recording(
+                        std::str::from_utf8(&raw.filename_or_error)
+                            .unwrap()
+                            .to_string(),
+                    ),
+                    _ => unreachable!(),
+                },
+                anomalies,
             }
         }
     }

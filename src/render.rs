@@ -8,7 +8,7 @@ use uom::si::f64::Mass;
 
 use crate::connection::Connection;
 use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing};
-use crate::observables::rqa::{ObservablesGroup1, ObservablesGroup2};
+use crate::observables::rqa::{ObservablesGroup1, ObservablesGroup2, RecordingState};
 
 // fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
 //     let lt = rect.left_top();
@@ -115,6 +115,9 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             egui::SidePanel::left("secret a left")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(clear_frame())
                 .exact_width(ui.available_width() / 3.0)
                 .show_inside(ui, |ui| {
                     ui.label(RichText::new("Enter Secret A").heading());
@@ -124,6 +127,9 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
         });
         ui.horizontal(|ui| {
             egui::SidePanel::left("secret b left")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(clear_frame())
                 .exact_width(ui.available_width() / 3.0)
                 .show_inside(ui, |ui| {
                     ui.label(RichText::new("Enter Secret B").heading());
@@ -145,12 +151,12 @@ fn render_thrust(ui: &mut Ui, thrust: Mass) {
     ui.label(RichText::new(format!("{:?}", thrust)).heading());
 }
 
-fn render_recording_state(ui: &mut Ui, recording_state: &ObservablesGroup2) {
-    let (text, color) = match recording_state {
-        ObservablesGroup2::Unknown => ("Unknown".to_string(), Color32::DARK_GRAY),
-        ObservablesGroup2::Error(text) => (text.clone(), Color32::RED),
-        ObservablesGroup2::Pause => ("Pause".to_string(), Color32::DARK_GRAY),
-        ObservablesGroup2::Recording(filename) => (filename.clone(), Color32::WHITE),
+fn render_recording_state(ui: &mut Ui, recording_state: &RecordingState) {
+    let (text, color) = match &recording_state {
+        RecordingState::Unknown => ("Unknown".to_string(), Color32::DARK_GRAY),
+        RecordingState::Error(text) => (text.clone(), Color32::RED),
+        RecordingState::Pause => ("Pause".to_string(), Color32::DARK_GRAY),
+        RecordingState::Recording(filename) => (filename.clone(), Color32::WHITE),
     };
     ui.label(RichText::new(text).heading().color(color));
 }
@@ -163,6 +169,10 @@ fn render_observables(
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             egui::SidePanel::left("timestamp")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(clear_frame())
+                .resizable(false)
                 .exact_width(ui.available_width() / 5.0)
                 .show_inside(ui, |ui| {
                     ui.label(RichText::new("Timestamp").heading());
@@ -173,6 +183,10 @@ fn render_observables(
         });
         ui.horizontal(|ui| {
             egui::SidePanel::left("thrust")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(clear_frame())
+                .resizable(false)
                 .exact_width(ui.available_width() / 5.0)
                 .show_inside(ui, |ui| {
                     ui.label(RichText::new("Thrust").heading());
@@ -183,12 +197,34 @@ fn render_observables(
         });
         ui.horizontal(|ui| {
             egui::SidePanel::left("recording")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(clear_frame())
+                .resizable(false)
                 .exact_width(ui.available_width() / 5.0)
                 .show_inside(ui, |ui| {
                     ui.label(RichText::new("Recording State").heading());
                 });
             if let Some(obg2) = obg2 {
-                render_recording_state(ui, obg2);
+                render_recording_state(ui, &obg2.recording_state);
+            }
+        });
+        ui.horizontal(|ui| {
+            egui::SidePanel::left("anomalies")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(clear_frame())
+                .resizable(false)
+                .exact_width(ui.available_width() / 5.0)
+                .show_inside(ui, |ui| {
+                    ui.label(RichText::new("Anomalies").heading());
+                });
+            if let Some(obg2) = obg2 {
+                ui.label(
+                    RichText::new(format!("{}", obg2.anomalies))
+                        .heading()
+                        .color(Color32::WHITE),
+                );
             }
         });
     });
@@ -290,6 +326,17 @@ fn frame(active: bool) -> Frame {
     }
 }
 
+fn clear_frame() -> Frame {
+    egui::containers::Frame {
+        rounding: egui::Rounding::default(),
+        fill: Color32::TRANSPARENT,
+        stroke: egui::Stroke::NONE,
+        inner_margin: 1.0.into(),
+        outer_margin: 1.0.into(),
+        shadow: Shadow::NONE,
+    }
+}
+
 fn status_background_frame<C: Connection, IdGenerator: Iterator<Item = usize>>(
     ui: &mut Ui,
     model: &Model<C, IdGenerator>,
@@ -334,6 +381,7 @@ pub fn render<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Mo
     };
     egui::TopBottomPanel::top("top_panel")
         .resizable(false)
+        .show_separator_line(false)
         .frame(frame(tabs_active))
         .min_height(ui.spacing().interact_size.y * 2.0)
         .show_inside(ui, |ui| {
@@ -343,6 +391,7 @@ pub fn render<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Mo
         });
     egui::TopBottomPanel::bottom("bottom_panel")
         .resizable(false)
+        .show_separator_line(false)
         .min_height(ui.spacing().interact_size.y * 2.0)
         .frame(status_background_frame(ui, model))
         .show_inside(ui, |ui| {

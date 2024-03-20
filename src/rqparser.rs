@@ -518,17 +518,20 @@ fn string_parser(s: &[u8]) -> IResult<&[u8], Vec<u8>> {
 
 pub fn rqa_obg2_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObservablesGroup2)> {
     // RQAOBG,123,LNC,2,R,FOOBAR.TXT
-    let (rest, (source, _, command_id, _, recipient, _, state, _, filename_or_error)) = tuple((
-        node_parser,
-        tag(b"OBG,"),
-        command_id_parser,
-        tag(b","),
-        node_parser,
-        tag(",2,"),
-        alt((tag("E"), tag("P"), tag("U"), tag("R"))),
-        tag(","),
-        string_parser,
-    ))(s)?;
+    let (rest, (source, _, command_id, _, recipient, _, state, _, filename_or_error, _, anomalies)) =
+        tuple((
+            node_parser,
+            tag(b"OBG,"),
+            command_id_parser,
+            tag(b","),
+            node_parser,
+            tag(",2,"),
+            alt((tag("E"), tag("P"), tag("U"), tag("R"))),
+            tag(","),
+            string_parser,
+            tag(","),
+            hex_u32_parser,
+        ))(s)?;
     Ok((
         rest,
         (
@@ -538,6 +541,7 @@ pub fn rqa_obg2_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObserv
             RawObservablesGroup2 {
                 state: state[0],
                 filename_or_error,
+                anomalies,
             },
         ),
     ))
@@ -895,14 +899,18 @@ mod tests {
     #[test]
     fn test_obg2_parser() {
         assert_matches!(
-            rqa_obg2_parser(b"RQAOBG,123,LNC,2,R,TEST.DAT"),
+            rqa_obg2_parser(b"RQAOBG,123,LNC,2,R,TEST.DAT,000000FF"),
             Ok((
                 b"",
                 (
                     Node::RedQueen(b'A'),
                     123,
                     Node::LaunchControl,
-                    RawObservablesGroup2 { state: b'R', .. }
+                    RawObservablesGroup2 {
+                        state: b'R',
+                        anomalies: 255,
+                        ..
+                    }
                 )
             ))
         );
