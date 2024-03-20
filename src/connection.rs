@@ -5,6 +5,7 @@ pub enum Answers {
     Received(Vec<u8>),
     Observables(RawObservablesGroup),
     Timeout,
+    ConnectionOpen,
     ConnectionError,
     Drained,
 }
@@ -12,4 +13,5 @@ pub enum Answers {
 pub trait Connection: std::io::Write {
     fn recv(&mut self, callback: impl FnOnce(Answers));
     fn drain(&mut self);
+    fn open(&mut self, port: &str);
 }

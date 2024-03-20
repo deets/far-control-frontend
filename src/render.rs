@@ -7,6 +7,7 @@ use palette::{Gradient, LinSrgb};
 use uom::si::f64::Mass;
 
 use crate::connection::Connection;
+use crate::layout::colors::{color32, kind_color, kind_color32, Intensity, Kind};
 use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing};
 use crate::observables::rqa::{ObservablesGroup1, ObservablesGroup2, RecordingState};
 
@@ -21,23 +22,78 @@ use crate::observables::rqa::{ObservablesGroup1, ObservablesGroup2, RecordingSta
 //     (left, right)
 // }
 
-fn render_header<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Model<C, Id>) {
-    ui.horizontal(|ui| {
-        let is_observables = match model.mode() {
-            Mode::Observables(_) => true,
-            Mode::LaunchControl(_) => false,
-        };
-        let _ = ui.selectable_label(is_observables, "Observables");
-        let _ = ui.selectable_label(!is_observables, "Launch Control");
-    });
+fn render_header_text(ui: &mut Ui, text: &str, color: Color32) {
+    let digit_font = FontId::new(32.0, egui::FontFamily::Monospace);
+    let painter = ui.painter();
+    let galley = painter.layout_no_wrap(text.into(), digit_font.clone(), color);
+    let rect = galley.size();
+    let (response, painter) = ui.allocate_painter(rect.into(), Sense::hover());
+    painter.text(
+        response.rect.center(),
+        Align2::CENTER_CENTER,
+        text,
+        digit_font,
+        color,
+    );
 }
 
-fn active_color(active: bool) -> Color32 {
+fn intensity(selected: bool) -> Intensity {
+    if selected {
+        Intensity::High
+    } else {
+        Intensity::Low
+    }
+}
+
+fn text_color(active: bool) -> Color32 {
     if active {
         Color32::WHITE
     } else {
-        Color32::DARK_GRAY
+        Color32::BLACK
     }
+}
+
+fn kind_for_mode(mode: &Mode) -> Kind {
+    match mode {
+        Mode::Observables(_) => Kind::Observables,
+        Mode::LaunchControl(_) => Kind::LaunchControl,
+    }
+}
+
+fn render_header<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Model<C, Id>) {
+    let is_observables = match model.mode() {
+        Mode::Observables(_) => true,
+        Mode::LaunchControl(_) => false,
+    };
+    let is_tabs = match model.control {
+        ControlArea::Tabs => true,
+        ControlArea::Details => false,
+    };
+
+    ui.horizontal(|ui| {
+        egui::SidePanel::left("observables")
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(color_frame(
+                kind_color32(Kind::Observables, intensity(is_observables && is_tabs)),
+                10.0,
+            ))
+            .exact_width(ui.available_width() / 2.0)
+            .show_inside(ui, |ui| {
+                render_header_text(ui, "Observables", text_color(is_observables && is_tabs));
+            });
+        egui::SidePanel::right("launch control")
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(color_frame(
+                kind_color32(Kind::LaunchControl, intensity(!is_observables && is_tabs)),
+                10.0,
+            ))
+            .exact_width(ui.available_width())
+            .show_inside(ui, |ui| {
+                render_header_text(ui, "Launch Control", text_color(!is_observables && is_tabs));
+            });
+    });
 }
 
 fn render_digit(ui: &mut Ui, digit: u8, active: bool) {
@@ -58,14 +114,8 @@ fn render_digit(ui: &mut Ui, digit: u8, active: bool) {
         Align2::CENTER_CENTER,
         text,
         digit_font,
-        active_color(active),
+        text_color(active),
     );
-    // painter.rect(
-    //     response.rect,
-    //     Rounding::default(),
-    //     Color32::TRANSPARENT,
-    //     Stroke::new(4.0, Color32::RED),
-    // );
 }
 
 fn render_fire(ui: &mut Ui, state: &LaunchControlState) {
@@ -81,7 +131,7 @@ fn render_fire(ui: &mut Ui, state: &LaunchControlState) {
         Align2::CENTER_CENTER,
         text,
         digit_font,
-        active_color(match state {
+        text_color(match state {
             LaunchControlState::WaitForFire { .. } => true,
             _ => false,
         }),
@@ -95,12 +145,7 @@ fn render_progress(ui: &mut Ui, state: &LaunchControlState) {
         LinSrgb::new(1.0, 1.0, 0.0),
         LinSrgb::new(1.0, 0.0, 0.0),
     ]);
-    let color = gradient.get(progress);
-    let color = Color32::from_rgb(
-        (color.red * 255.0) as u8,
-        (color.green * 255.0) as u8,
-        (color.blue * 255.0) as u8,
-    );
+    let color = color32(gradient.get(progress));
 
     let pbar = ProgressBar::new(progress).fill(match state {
         LaunchControlState::PrepareIgnition { .. } => color,
@@ -120,7 +165,11 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
                 .frame(clear_frame())
                 .exact_width(ui.available_width() / 3.0)
                 .show_inside(ui, |ui| {
-                    ui.label(RichText::new("Enter Secret A").heading());
+                    ui.label(
+                        RichText::new("Enter Secret A")
+                            .color(text_color(hi_a_hl || lo_a_hl))
+                            .heading(),
+                    );
                 });
             render_digit(ui, hi_a, hi_a_hl);
             render_digit(ui, lo_a, lo_a_hl);
@@ -132,7 +181,11 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
                 .frame(clear_frame())
                 .exact_width(ui.available_width() / 3.0)
                 .show_inside(ui, |ui| {
-                    ui.label(RichText::new("Enter Secret B").heading());
+                    ui.label(
+                        RichText::new("Enter Secret B")
+                            .color(text_color(hi_b_hl || lo_b_hl))
+                            .heading(),
+                    );
                 });
             render_digit(ui, hi_b, hi_b_hl);
             render_digit(ui, lo_b, lo_b_hl);
@@ -144,11 +197,19 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
 
 fn render_uptime(ui: &mut Ui, uptime: Duration) {
     let secs = uptime.as_secs_f64();
-    ui.label(RichText::new(format!("{}", secs)).heading());
+    ui.label(
+        RichText::new(format!("{}", secs))
+            .color(text_color(false))
+            .heading(),
+    );
 }
 
 fn render_thrust(ui: &mut Ui, thrust: Mass) {
-    ui.label(RichText::new(format!("{:?}", thrust)).heading());
+    ui.label(
+        RichText::new(format!("{:?}", thrust))
+            .color(text_color(false))
+            .heading(),
+    );
 }
 
 fn render_recording_state(ui: &mut Ui, recording_state: &RecordingState) {
@@ -175,7 +236,11 @@ fn render_observables(
                 .resizable(false)
                 .exact_width(ui.available_width() / 5.0)
                 .show_inside(ui, |ui| {
-                    ui.label(RichText::new("Timestamp").heading());
+                    ui.label(
+                        RichText::new("Timestamp")
+                            .color(text_color(false))
+                            .heading(),
+                    );
                 });
             if let Some(obg1) = obg1 {
                 render_uptime(ui, obg1.uptime);
@@ -189,7 +254,7 @@ fn render_observables(
                 .resizable(false)
                 .exact_width(ui.available_width() / 5.0)
                 .show_inside(ui, |ui| {
-                    ui.label(RichText::new("Thrust").heading());
+                    ui.label(RichText::new("Thrust").color(text_color(false)).heading());
                 });
             if let Some(obg1) = obg1 {
                 render_thrust(ui, obg1.thrust);
@@ -203,7 +268,11 @@ fn render_observables(
                 .resizable(false)
                 .exact_width(ui.available_width() / 5.0)
                 .show_inside(ui, |ui| {
-                    ui.label(RichText::new("Recording State").heading());
+                    ui.label(
+                        RichText::new("Recording State")
+                            .color(text_color(false))
+                            .heading(),
+                    );
                 });
             if let Some(obg2) = obg2 {
                 render_recording_state(ui, &obg2.recording_state);
@@ -217,7 +286,11 @@ fn render_observables(
                 .resizable(false)
                 .exact_width(ui.available_width() / 5.0)
                 .show_inside(ui, |ui| {
-                    ui.label(RichText::new("Anomalies").heading());
+                    ui.label(
+                        RichText::new("Anomalies")
+                            .color(text_color(false))
+                            .heading(),
+                    );
                 });
             if let Some(obg2) = obg2 {
                 ui.label(
@@ -293,46 +366,24 @@ fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
     });
 }
 
-fn frame(active: bool) -> Frame {
-    egui::containers::Frame {
-        rounding: egui::Rounding {
-            nw: 1.0,
-            ne: 1.0,
-            sw: 1.0,
-            se: 1.0,
-        },
-        fill: match active {
-            true => Color32::DARK_RED,
-            false => Color32::TRANSPARENT,
-        },
-        stroke: egui::Stroke::NONE,
-        inner_margin: {
-            egui::style::Margin {
-                left: 10.,
-                right: 10.,
-                top: 10.,
-                bottom: 10.,
-            }
-        },
-        outer_margin: {
-            egui::style::Margin {
-                left: 10.,
-                right: 10.,
-                top: 10.,
-                bottom: 10.,
-            }
-        },
-        shadow: Shadow::NONE,
-    }
-}
-
 fn clear_frame() -> Frame {
     egui::containers::Frame {
         rounding: egui::Rounding::default(),
         fill: Color32::TRANSPARENT,
         stroke: egui::Stroke::NONE,
-        inner_margin: 1.0.into(),
-        outer_margin: 1.0.into(),
+        inner_margin: 0.0.into(),
+        outer_margin: 0.0.into(),
+        shadow: Shadow::NONE,
+    }
+}
+
+fn color_frame(color: Color32, padding: f32) -> Frame {
+    egui::containers::Frame {
+        rounding: egui::Rounding::default(),
+        fill: color,
+        stroke: egui::Stroke::NONE,
+        inner_margin: padding.into(),
+        outer_margin: 0.0.into(),
         shadow: Shadow::NONE,
     }
 }
@@ -343,7 +394,13 @@ fn status_background_frame<C: Connection, IdGenerator: Iterator<Item = usize>>(
 ) -> Frame {
     let id = Id::new("status_background_frame");
     let how_connected = ui.ctx().animate_bool_with_time(id, !model.connected(), 0.5);
-    let fill = Color32::DARK_RED.gamma_multiply(how_connected);
+
+    let gradient = Gradient::new(vec![
+        kind_color(Kind::Status, Intensity::Low),
+        LinSrgb::new(1.0, 0.0, 0.0),
+    ]);
+
+    let fill = color32(gradient.get(how_connected));
 
     egui::containers::Frame {
         rounding: egui::Rounding {
@@ -364,10 +421,10 @@ fn status_background_frame<C: Connection, IdGenerator: Iterator<Item = usize>>(
         },
         outer_margin: {
             egui::style::Margin {
-                left: 10.,
-                right: 10.,
-                top: 10.,
-                bottom: 10.,
+                left: 0.,
+                right: 0.,
+                top: 0.,
+                bottom: 0.,
             }
         },
         shadow: Shadow::NONE,
@@ -382,7 +439,7 @@ pub fn render<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Mo
     egui::TopBottomPanel::top("top_panel")
         .resizable(false)
         .show_separator_line(false)
-        .frame(frame(tabs_active))
+        .frame(clear_frame())
         .min_height(ui.spacing().interact_size.y * 2.0)
         .show_inside(ui, |ui| {
             ui.vertical_centered(|ui| {
@@ -400,7 +457,10 @@ pub fn render<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Mo
             });
         });
     egui::CentralPanel::default()
-        .frame(frame(!tabs_active))
+        .frame(color_frame(
+            kind_color32(kind_for_mode(model.mode()), intensity(!tabs_active)),
+            10.0,
+        ))
         .show_inside(ui, |ui| {
             render_body(ui, model);
         });

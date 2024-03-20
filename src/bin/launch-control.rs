@@ -42,13 +42,8 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     info!("Opening E32 {}", DEVICE);
-    let conn = E32Connection::new(
-        DEVICE,
-        id_generator.clone(),
-        me.clone(),
-        target_red_queen.clone(),
-    )
-    .unwrap();
+    let conn =
+        E32Connection::new(id_generator.clone(), me.clone(), target_red_queen.clone()).unwrap();
 
     eframe::run_native(
         "Launch Control",
@@ -74,7 +69,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
 
         let consort =
             Consort::new_with_id_generator(me, target_red_queen, start_time, id_generator);
-        let model = Model::new(consort, conn, start_time);
+        let model = Model::new(consort, conn, start_time, DEVICE);
 
         Self { model }
     }
@@ -125,12 +120,7 @@ async fn run() -> anyhow::Result<()> {
     info!("Opening E32 {}", DEVICE);
     let id_generator = SharedIdGenerator::default();
     let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
-    let conn = E32Connection::new(
-        DEVICE,
-        id_generator.clone(),
-        me.clone(),
-        target_red_queen.clone(),
-    )?;
+    let conn = E32Connection::new(id_generator.clone(), me.clone(), target_red_queen.clone())?;
 
     // Initialize sdl
     let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;
@@ -176,7 +166,7 @@ async fn run() -> anyhow::Result<()> {
         start_time,
         id_generator,
     );
-    let mut model = Model::new(consort, conn, start_time);
+    let mut model = Model::new(consort, conn, start_time, DEVICE);
 
     'main: loop {
         // Update the time

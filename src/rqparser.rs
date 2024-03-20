@@ -558,8 +558,7 @@ mod tests {
     #[test]
     fn test_feeding_full_sentence() {
         let sentence = b"$RQSTATE,013940.4184,DROGUE_OPEN*39\r\n";
-        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-        let mut parser = SentenceParser::new(&mut ringbuffer);
+        let mut parser = SentenceParser::new();
         let mut called = false;
         parser
             .feed(sentence, |output_sentence| {
@@ -574,8 +573,7 @@ mod tests {
     #[test]
     fn test_too_small_output_buffer() {
         let sentence = b"$RQSTATE,01234567890123456789012345678901234567890123456789012345678901234567890123456789013940.4184,DROGUE_OPEN*39\r\n";
-        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-        let mut parser = SentenceParser::new(&mut ringbuffer);
+        let mut parser = SentenceParser::new();
         assert_eq!(
             Err(Error::OutputBufferOverflow),
             parser.feed(sentence, |_| {})
@@ -585,8 +583,7 @@ mod tests {
     #[test]
     fn test_output_buffer_overvflow_recovers() {
         let sentence = b"$RQSTATE,01234567890123456789012345678901234567890123456789012345678901234567890123456789013940.4184,DROGUE_OPEN*39\r\n";
-        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-        let mut parser = SentenceParser::new(&mut ringbuffer);
+        let mut parser = SentenceParser::new();
 
         assert_eq!(
             Err(Error::OutputBufferOverflow),
@@ -606,8 +603,7 @@ mod tests {
     fn test_leading_garbage_is_discarded() {
         let sentence =
             b"prentend-this-is-an-earlier-sentence\r\n$RQSTATE,013940.4184,DROGUE_OPEN*39\r\n";
-        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-        let mut parser = SentenceParser::new(&mut ringbuffer);
+        let mut parser = SentenceParser::new();
         let mut called = false;
         parser
             .feed(sentence, |output_sentence| {
@@ -621,8 +617,7 @@ mod tests {
     #[test]
     fn test_even_more_garbage_is_discarded() {
         let sentence = b"$\rX\r\n$RQSTATE,013940.4184,DROGUE_OPEN*39\r\n";
-        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-        let mut parser = SentenceParser::new(&mut ringbuffer);
+        let mut parser = SentenceParser::new();
         let mut called = false;
         parser
             .feed(sentence, |output_sentence| {

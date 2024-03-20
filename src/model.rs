@@ -124,6 +124,7 @@ where
     module: C,
     start: Instant,
     now: Instant,
+    port: String,
     pub obg1: Option<ObservablesGroup1>,
     pub obg2: Option<ObservablesGroup2>,
 }
@@ -150,6 +151,7 @@ pub trait StateProcessing {
     fn reset_mode(&self) -> Self::State;
 
     fn failure_mode(&self) -> Self::State;
+
     fn reset_ongoing(&self) -> bool;
 }
 
@@ -822,7 +824,7 @@ impl LaunchControlState {
 }
 
 impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
-    pub fn new(consort: Consort<Id>, module: C, now: Instant) -> Self {
+    pub fn new(consort: Consort<Id>, module: C, now: Instant, port: &str) -> Self {
         Self {
             mode: Default::default(),
             control: Default::default(),
@@ -830,6 +832,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             start: now,
             now,
             module,
+            port: port.into(),
             obg1: None,
             obg2: None,
         }
@@ -875,6 +878,10 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             Answers::Drained => {
                 reset = true;
             }
+            Answers::ConnectionOpen => {
+                // Go through a reset cycle on a new connection
+                reset = true;
+            }
         });
         if let Some(o) = observables {
             self.process_observables(&o);
@@ -885,6 +892,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             self.reset();
         } else if error {
             self.mode = self.mode.failure_mode();
+            self.module.open(&self.port);
         } else {
             while !ringbuffer.is_empty() {
                 match self.consort.feed(&mut ringbuffer) {
@@ -1025,6 +1033,14 @@ mod tests {
                 callback(Answers::Received(response));
             }
         }
+
+        fn drain(&mut self) {
+            todo!()
+        }
+
+        fn open(&mut self, port: &str) {
+            todo!()
+        }
     }
 
     impl std::io::Write for MockConnection {
@@ -1047,17 +1063,15 @@ mod tests {
 
     #[test]
     fn test_full_fsm_progression() {
-        let mut buffer = AllocRingBuffer::new(256);
         let connection = MockConnection { responses: vec![] };
         let now = Instant::now();
         let consort = Consort::new_with_id_generator(
             Node::LaunchControl,
             Node::RedQueen(b'A'),
-            &mut buffer,
             now,
             SimpleIdGenerator::default(),
         );
-        let mut model = Model::new(consort, connection, now);
+        let mut model = Model::new(consort, connection, now, "comport");
         assert_matches!(model.mode(), Mode::LaunchControl(_));
         assert_eq!(model.control, ControlArea::Tabs);
         // Put us into reset

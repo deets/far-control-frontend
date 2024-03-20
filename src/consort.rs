@@ -239,11 +239,9 @@ mod tests {
 
     #[test]
     fn test_instantiation() {
-        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
         let _consort = Consort::new_with_id_generator(
             Node::LaunchControl,
             Node::RedQueen(b'A'),
-            &mut ringbuffer,
             Instant::now(),
             SimpleIdGenerator::default(),
         );
@@ -251,11 +249,9 @@ mod tests {
 
     #[test]
     fn test_sending_command() {
-        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
         let mut consort = Consort::new_with_id_generator(
             Node::LaunchControl,
             Node::RedQueen(b'A'),
-            &mut ringbuffer,
             Instant::now(),
             SimpleIdGenerator::default(),
         );
@@ -278,11 +274,9 @@ mod tests {
 
     #[test]
     fn test_sending_command_and_receiving_partial_answer() {
-        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
         let mut consort = Consort::new_with_id_generator(
             Node::LaunchControl,
             Node::RedQueen(b'A'),
-            &mut ringbuffer,
             Instant::now(),
             SimpleIdGenerator::default(),
         );
@@ -304,11 +298,9 @@ mod tests {
 
     #[test]
     fn test_sending_spurious_command() {
-        let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
         let mut consort = Consort::new_with_id_generator(
             Node::LaunchControl,
             Node::RedQueen(b'A'),
-            &mut ringbuffer,
             Instant::now(),
             SimpleIdGenerator::default(),
         );

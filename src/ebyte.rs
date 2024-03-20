@@ -5,7 +5,6 @@ use ebyte_e32_ftdi::{CtsAux, M0Dtr, M1Rts, Serial, StandardDelay};
 use embedded_hal::serial::Read;
 use log::{debug, error, warn};
 use nb::block;
-use ringbuffer::AllocRingBuffer;
 use serial_core::{BaudRate, CharSize, FlowControl, Parity, PortSettings, SerialPort, StopBits};
 use std::{
     cell::RefCell,
@@ -35,7 +34,6 @@ enum Commands {
 struct E32Worker<Id> {
     command_receiver: Receiver<Commands>,
     response_sender: Sender<Answers>,
-    sentence_parser: SentenceParser,
     command_id_generator: Id,
     me: Node,
     target_red_queen: Node,
@@ -50,27 +48,22 @@ pub struct E32Connection {
 
 impl E32Connection {
     pub fn new<Id: Iterator<Item = usize> + Send + Sync + 'static>(
-        port: &str,
         command_id_generator: Id,
         me: Node,
         target_red_queen: Node,
     ) -> anyhow::Result<E32Connection> {
-        let port = port.to_string();
         let (command_sender, command_receiver) = unbounded::<Commands>();
         let (response_sender, response_receiver) = unbounded::<Answers>();
         let handle = thread::spawn(move || {
-            let sentence_parser = SentenceParser::new();
             let mut worker = E32Worker {
                 command_receiver,
                 response_sender,
-                sentence_parser,
                 command_id_generator,
                 me,
                 target_red_queen,
             };
             worker.work();
         });
-        command_sender.send(Commands::Open(port))?;
         Ok(E32Connection {
             worker: Some(handle),
             command_sender,
@@ -107,6 +100,12 @@ impl Connection for E32Connection {
     fn drain(&mut self) {
         self.command_sender.send(Commands::Drain).unwrap();
     }
+
+    fn open(&mut self, port: &str) {
+        self.command_sender
+            .send(Commands::Open(port.into()))
+            .unwrap();
+    }
 }
 
 impl Drop for E32Connection {
@@ -132,9 +131,10 @@ where
                     }
                     Commands::Open(port) => {
                         if let Ok(m) = create(&port, default_parameters()) {
-                            module = Some(m)
+                            module = Some(m);
+                            self.response_sender.send(Answers::ConnectionOpen).unwrap();
                         } else {
-                            error!("Can't open port");
+                            error!("Can't open port '{}'", port);
                         }
                     }
                     Commands::Send(data) => match &mut module {

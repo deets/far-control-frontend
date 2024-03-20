@@ -39,6 +39,7 @@ nom = "7.1.3"
 log = "0.4.20"
 simple_logger = "4.3.3"
 uom = "0.35.0"
+memoize = "0.4.2"
 
 [dev-dependencies]
 mock_instant = "0.3.1"
