@@ -68,7 +68,6 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
-#[cfg(feature = "eframe")]
 struct LaunchControlApp<C, Id>
 where
     C: Connection,
@@ -77,7 +76,6 @@ where
     model: Model<C, Id>,
 }
 
-#[cfg(feature = "eframe")]
 impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
     fn new(id_generator: Id, conn: C) -> Self {
         let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
@@ -90,6 +88,21 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
         let model = Model::new(consort, conn, start_time, &port_path);
 
         Self { model }
+    }
+
+    #[cfg(feature = "sdl2")]
+    fn update(&mut self, input_events: &Vec<InputEvent>, ctx: &egui::Context) {
+        self.model.drive(Instant::now()).unwrap();
+        // Get the egui context and begin drawing the frame
+        // Draw an egui window
+        egui::Area::new("launch_control")
+            .fixed_pos([0.0, 0.0])
+            .constrain(true)
+            .movable(false)
+            .show(&ctx, |ui| {
+                render(ui, &self.model);
+            });
+        self.model.process_input_events(&input_events);
     }
 }
 
@@ -133,12 +146,73 @@ impl<C: Connection, Id: Iterator<Item = usize>> eframe::App for LaunchControlApp
 }
 
 #[cfg(feature = "sdl2")]
+fn get_input_events(
+    event_pump: &mut sdl2::EventPump,
+    platform: &mut egui_sdl2_platform::Platform,
+    sdl: &sdl2::Sdl,
+    video: &mut sdl2::VideoSubsystem,
+    window: &sdl2::video::Window,
+) -> (bool, Vec<InputEvent>) {
+    let mut input_events = vec![];
+    let mut quit = false;
+    // Handle sdl events
+    for event in event_pump.poll_iter() {
+        // Handle sdl events
+        match event {
+            Event::Window {
+                window_id,
+                win_event,
+                ..
+            } => {
+                if window_id == window.id() {
+                    if let WindowEvent::Close = win_event {
+                        quit = true;
+                    }
+                }
+            }
+            Event::KeyDown {
+                keycode: Some(sdl2::keyboard::Keycode::Escape),
+                ..
+            } => quit = true,
+            Event::KeyDown { keycode, .. } => {
+                if let Some(keycode) = keycode {
+                    match keycode {
+                        sdl2::keyboard::Keycode::Space => {
+                            input_events.push(InputEvent::Enter);
+                        }
+                        sdl2::keyboard::Keycode::Return => {
+                            input_events.push(InputEvent::Enter);
+                        }
+                        sdl2::keyboard::Keycode::Backspace => {
+                            input_events.push(InputEvent::Back);
+                        }
+                        sdl2::keyboard::Keycode::Left => {
+                            input_events.push(InputEvent::Left(10));
+                        }
+                        sdl2::keyboard::Keycode::Right => {
+                            input_events.push(InputEvent::Right(10));
+                        }
+                        sdl2::keyboard::Keycode::S => input_events.push(InputEvent::Send),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        // Let the egui platform handle the event
+        platform.handle_event(&event, sdl, video);
+    }
+    (quit, input_events)
+}
+
+#[cfg(feature = "sdl2")]
 async fn run() -> anyhow::Result<()> {
     simple_logger::init_with_env().unwrap();
-    info!("Opening E32 {}", DEVICE);
     let id_generator = SharedIdGenerator::default();
     let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
-    let conn = E32Connection::new(id_generator.clone(), me.clone(), target_red_queen.clone())?;
+    let conn =
+        E32Connection::new(id_generator.clone(), me.clone(), target_red_queen.clone()).unwrap();
+    let mut app = LaunchControlApp::new(id_generator, conn);
 
     // Initialize sdl
     let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;
@@ -176,33 +250,18 @@ async fn run() -> anyhow::Result<()> {
     // Get the time before the loop started
     let start_time = Instant::now();
     let mut timestep = TimeStep::new();
-    let mut ringbuffer = ringbuffer::AllocRingBuffer::new(256);
-    let consort = Consort::new_with_id_generator(
-        me,
-        target_red_queen,
-        &mut ringbuffer,
-        start_time,
-        id_generator,
-    );
-    let mut model = Model::new(consort, conn, start_time, DEVICE);
 
     'main: loop {
         // Update the time
+        let (quit, input_events) =
+            get_input_events(&mut event_pump, &mut platform, &sdl, &mut video, &window);
+        if quit {
+            break 'main;
+        }
+
         platform.update_time(start_time.elapsed().as_secs_f64());
-        model.drive(Instant::now()).unwrap();
-
         let ctx = platform.context();
-        let mut input_events = vec![];
-
-        // Get the egui context and begin drawing the frame
-        // Draw an egui window
-        egui::Area::new("launch_control")
-            .fixed_pos([0.0, 0.0])
-            .constrain(true)
-            .movable(false)
-            .show(&ctx, |ui| {
-                render(ui, &model);
-            });
+        app.update(&input_events, &ctx);
 
         // Stop drawing the egui frame and get the full output
         let full_output = platform.end_frame(&mut video)?;
@@ -210,64 +269,15 @@ async fn run() -> anyhow::Result<()> {
         let paint_jobs = platform.tessellate(&full_output);
         let pj = paint_jobs.as_slice();
 
-        unsafe {
-            painter.gl().clear_color(color[0], color[1], color[2], 1.0);
-            painter.gl().clear(gl::COLOR_BUFFER_BIT);
-        }
+        // unsafe {
+        //     painter.gl().clear_color(color[0], color[1], color[2], 1.0);
+        //     painter.gl().clear(gl::COLOR_BUFFER_BIT);
+        // }
 
         let size = window.size();
         painter.paint_and_update_textures([size.0, size.1], 1.0, pj, &full_output.textures_delta);
         window.gl_swap_window();
         timestep.run_this(|_| {});
-
-        // Handle sdl events
-        for event in event_pump.poll_iter() {
-            // Handle sdl events
-            match event {
-                Event::Window {
-                    window_id,
-                    win_event,
-                    ..
-                } => {
-                    if window_id == window.id() {
-                        if let WindowEvent::Close = win_event {
-                            break 'main;
-                        }
-                    }
-                }
-                Event::KeyDown {
-                    keycode: Some(sdl2::keyboard::Keycode::Escape),
-                    ..
-                } => break 'main,
-                Event::KeyDown { keycode, .. } => {
-                    if let Some(keycode) = keycode {
-                        match keycode {
-                            sdl2::keyboard::Keycode::Space => {
-                                input_events.push(InputEvent::Enter);
-                            }
-                            sdl2::keyboard::Keycode::Return => {
-                                input_events.push(InputEvent::Enter);
-                            }
-                            sdl2::keyboard::Keycode::Backspace => {
-                                input_events.push(InputEvent::Back);
-                            }
-                            sdl2::keyboard::Keycode::Left => {
-                                input_events.push(InputEvent::Left(10));
-                            }
-                            sdl2::keyboard::Keycode::Right => {
-                                input_events.push(InputEvent::Right(10));
-                            }
-                            sdl2::keyboard::Keycode::S => input_events.push(InputEvent::Send),
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-            // Let the egui platform handle the event
-            platform.handle_event(&event, &sdl, &video);
-        }
-        model.process_input_events(&input_events);
     }
     Ok(())
 }

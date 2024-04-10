@@ -6,7 +6,7 @@ edition = "2021"
 default-run = "launch-control"
 
 [features]
-default = ["e32", "eframe"]
+default = ["e32"]
 e32 = ["dep:ebyte-e32", "dep:ebyte-e32-ftdi"]
 sdl2 = ["dep:egui_sdl2_platform"]
 eframe = ["dep:eframe"]

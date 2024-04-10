@@ -309,8 +309,18 @@ fn default_parameters() -> Parameters {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn modem_baud_rate() -> BaudRate {
+    BaudRate::Baud115200
+}
+
+#[cfg(not(target_os = "windows"))]
+fn modem_baud_rate() -> BaudRate {
+    BaudRate::Baud9600
+}
+
 fn create(port: &str, parameters: Parameters) -> anyhow::Result<E32Module> {
-    let baud_rate = BaudRate::Baud9600;
+    let baud_rate = modem_baud_rate();
     let stop_bits = StopBits::Stop1;
 
     let settings: PortSettings = PortSettings {
@@ -335,6 +345,7 @@ fn create(port: &str, parameters: Parameters) -> anyhow::Result<E32Module> {
     let m1 = M1Rts::new(port.clone());
     let delay = StandardDelay {};
     let mut module = Ebyte::new(serial, aux, m0, m1, delay)?;
+    #[cfg(not(target_os = "windows"))]
     configure(&mut module, &parameters)?;
     Ok(module)
 }

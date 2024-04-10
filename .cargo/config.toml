@@ -16,3 +16,9 @@ rustflags = [
    "-C", "link-arg=-LIBPATH:C:/Users/deets/Downloads/SDL2-devel-2.30.1-VC/SDL2-2.30.1/lib/x64"
 ]
 
+
+[target.aarch64-unknown-linux-gnu]
+linker = "/opt/nova-view-sdk/sysroots/x86_64-pokysdk-linux/usr/bin/aarch64-poky-linux/aarch64-poky-linux-gcc"
+rustflags = [
+  "-C", "link-arg=--sysroot=/opt/nova-view-sdk/sysroots/cortexa72-poky-linux",
+]
