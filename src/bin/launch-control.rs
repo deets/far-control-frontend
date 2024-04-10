@@ -216,6 +216,8 @@ async fn run() -> anyhow::Result<()> {
 
     // Initialize sdl
     let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;
+    let mut mouse = sdl.mouse();
+
     // Create the video subsystem
     let mut video = sdl
         .video()
@@ -261,6 +263,7 @@ async fn run() -> anyhow::Result<()> {
 
         platform.update_time(start_time.elapsed().as_secs_f64());
         let ctx = platform.context();
+        mouse.show_cursor(false);
         app.update(&input_events, &ctx);
 
         // Stop drawing the egui frame and get the full output
