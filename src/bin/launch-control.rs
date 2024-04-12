@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-#[cfg(feature = "sdl2")]
+#[cfg(feature = "novaview")]
 use std::sync::Arc;
 
 use std::time::Instant;
@@ -10,7 +10,7 @@ use control_frontend::input::InputEvent;
 use control_frontend::model::{Model, SharedIdGenerator};
 use control_frontend::render::render;
 use control_frontend::rqprotocol::Node;
-#[cfg(feature = "sdl2")]
+#[cfg(feature = "novaview")]
 use control_frontend::timestep::TimeStep;
 
 #[cfg(feature = "e32")]
@@ -20,11 +20,11 @@ use control_frontend::ebytemock::E32Connection;
 
 use egui::Key;
 
-#[cfg(feature = "sdl2")]
+#[cfg(feature = "novaview")]
 use egui_sdl2_platform::sdl2;
 use log::info;
 
-#[cfg(feature = "sdl2")]
+#[cfg(feature = "novaview")]
 use sdl2::event::{Event, WindowEvent};
 
 const SCREEN_WIDTH: u32 = 800;
@@ -90,7 +90,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
         Self { model }
     }
 
-    #[cfg(feature = "sdl2")]
+    #[cfg(feature = "novaview")]
     fn update(&mut self, input_events: &Vec<InputEvent>, ctx: &egui::Context) {
         self.model.drive(Instant::now()).unwrap();
         // Get the egui context and begin drawing the frame
@@ -145,7 +145,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> eframe::App for LaunchControlApp
     }
 }
 
-#[cfg(feature = "sdl2")]
+#[cfg(feature = "novaview")]
 fn get_input_events(
     event_pump: &mut sdl2::EventPump,
     platform: &mut egui_sdl2_platform::Platform,
@@ -205,7 +205,7 @@ fn get_input_events(
     (quit, input_events)
 }
 
-#[cfg(feature = "sdl2")]
+#[cfg(feature = "novaview")]
 async fn run() -> anyhow::Result<()> {
     simple_logger::init_with_env().unwrap();
     let id_generator = SharedIdGenerator::default();
@@ -285,7 +285,7 @@ async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "sdl2")]
+#[cfg(feature = "novaview")]
 fn main() -> anyhow::Result<()> {
     pollster::block_on(run())?;
     Ok(())

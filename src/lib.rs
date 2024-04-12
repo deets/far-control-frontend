@@ -1,6 +1,8 @@
 #![feature(assert_matches, slice_pattern, exclusive_range_pattern)]
 pub mod connection;
 pub mod consort;
+#[cfg(feature = "novaview")]
+pub mod e32linux;
 #[cfg(feature = "e32")]
 pub mod ebyte;
 #[cfg(not(feature = "e32"))]

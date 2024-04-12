@@ -1,20 +1,28 @@
 use anyhow::anyhow;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use ebyte_e32::{mode::Normal, Ebyte, Parameters};
+
+#[cfg(not(feature = "novaview"))]
 use ebyte_e32_ftdi::{CtsAux, M0Dtr, M1Rts, Serial, StandardDelay};
+
 use embedded_hal::serial::Read;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use nb::block;
+
 use serial_core::{BaudRate, CharSize, FlowControl, Parity, PortSettings, SerialPort, StopBits};
+use std::{cell::RefCell, rc::Rc};
+
+#[cfg(feature = "novaview")]
+use crate::e32linux::CtsAux;
+
 use std::{
-    cell::RefCell,
-    rc::Rc,
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
 use crate::{
     connection::{Answers, Connection},
+    e32linux::{M0Dtr, M1Rts, Serial, StandardDelay},
     rqparser::{SentenceParser, MAX_BUFFER_SIZE},
     rqprotocol::{Command, Node, Response, Transaction},
 };
@@ -129,14 +137,15 @@ where
                     Commands::Quit => {
                         break;
                     }
-                    Commands::Open(port) => {
-                        if let Ok(m) = create(&port, default_parameters()) {
+                    Commands::Open(port) => match create(&port, default_parameters()) {
+                        Ok(m) => {
                             module = Some(m);
                             self.response_sender.send(Answers::ConnectionOpen).unwrap();
-                        } else {
-                            error!("Can't open port '{}'", port);
                         }
-                    }
+                        Err(e) => {
+                            error!("Can't open port {}, reason: {}", port, e);
+                        }
+                    },
                     Commands::Send(data) => match &mut module {
                         Some(module) => {
                             debug!("sending {}", std::str::from_utf8(&data).unwrap());
@@ -309,44 +318,77 @@ fn default_parameters() -> Parameters {
     }
 }
 
-#[cfg(target_os = "windows")]
 fn modem_baud_rate() -> BaudRate {
-    BaudRate::Baud115200
+    return BaudRate::Baud9600;
 }
 
-#[cfg(not(target_os = "windows"))]
-fn modem_baud_rate() -> BaudRate {
-    BaudRate::Baud9600
-}
-
+#[cfg(feature = "novaview")]
 fn create(port: &str, parameters: Parameters) -> anyhow::Result<E32Module> {
+    use std::path::PathBuf;
+
+    use linux_embedded_hal::gpio_cdev::Chip;
+
     let baud_rate = modem_baud_rate();
     let stop_bits = StopBits::Stop1;
-
-    let settings: PortSettings = PortSettings {
+    let comms_settings: PortSettings = PortSettings {
         baud_rate,
         char_size: CharSize::Bits8,
         parity: Parity::ParityNone,
         stop_bits,
         flow_control: FlowControl::FlowNone,
     };
+    let mut config_settings = comms_settings.clone();
+    config_settings.baud_rate = BaudRate::Baud9600;
 
     let mut port = ::serial::open(port)?;
-
+    port.configure(&config_settings)?;
     port.set_timeout(ANSWER_TIMEOUT)?;
-    port.configure(&settings)?;
+    let serial = Serial::new(Rc::new(RefCell::new(port)));
+
+    let mut chip = Chip::new::<PathBuf>("/dev/gpiochip0".into())?;
+    let aux = CtsAux::new(&mut chip)?;
+
+    let m0 = M0Dtr::new(&mut chip)?;
+    let m1 = M1Rts::new(&mut chip)?;
+    let delay = StandardDelay {};
+    //serial.configure(&comms_settings);
+    let mut module = Ebyte::new(serial, aux, m0, m1, delay)?;
+    configure(&mut module, &parameters)?;
+    Ok(module)
+}
+
+#[cfg(not(feature = "novaview"))]
+fn create(port: &str, parameters: Parameters) -> anyhow::Result<E32Module> {
+    let baud_rate = modem_baud_rate();
+    let stop_bits = StopBits::Stop1;
+
+    let comms_settings: PortSettings = PortSettings {
+        baud_rate,
+        char_size: CharSize::Bits8,
+        parity: Parity::ParityNone,
+        stop_bits,
+        flow_control: FlowControl::FlowNone,
+    };
+    let mut config_settings = comms_settings.clone();
+    config_settings.baud_rate = BaudRate::Baud9600;
+
+    let mut port = ::serial::open(port)?;
+    port.configure(&config_settings)?;
+    port.set_timeout(ANSWER_TIMEOUT)?;
 
     let port = Rc::new(RefCell::new(port));
-    let serial = Serial::new(port.clone());
+    let mut serial = Serial::new(port.clone());
 
     let aux = CtsAux::new(port.clone());
 
     let m0 = M0Dtr::new(port.clone());
     let m1 = M1Rts::new(port.clone());
     let delay = StandardDelay {};
+    //serial.configure(&comms_settings);
     let mut module = Ebyte::new(serial, aux, m0, m1, delay)?;
     #[cfg(not(target_os = "windows"))]
     configure(&mut module, &parameters)?;
+
     Ok(module)
 }
 
@@ -357,10 +399,11 @@ fn configure(module: &mut E32Module, parameters: &Parameters) -> anyhow::Result<
         module.set_parameters(parameters, ebyte_e32::parameters::Persistence::Permanent)?;
         let active = module.parameters()?;
         if active == *parameters {
+            info!("Successfully configured E32Module");
             return Ok(());
         }
-        println!("Parameters not set successfully, retrying {}", i);
-        println!("active: {:?}, wanted: {:?}", active, *parameters);
+        error!("Parameters not set successfully, retrying {}", i);
+        error!("active: {:?}, wanted: {:?}", active, *parameters);
         std::thread::sleep(Duration::from_millis(100));
     }
     Err(anyhow!("Can't configure module!"))
