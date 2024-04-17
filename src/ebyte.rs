@@ -320,7 +320,7 @@ fn default_parameters() -> Parameters {
     }
 }
 
-fn modem_baud_rate() -> BaudRate {
+pub fn modem_baud_rate() -> BaudRate {
     #[cfg(not(target_os = "windows"))]
     return BaudRate::Baud9600;
     #[cfg(target_os = "windows")]

@@ -519,6 +519,7 @@ fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
             render_alive(ui);
         };
         ui.label(model.mode().name());
+        ui.label(format!("E32 baud rate: {:?}", modem_baud_rate()));
     });
 }
 
