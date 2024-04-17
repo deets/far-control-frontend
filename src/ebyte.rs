@@ -22,10 +22,12 @@ use std::{
 
 use crate::{
     connection::{Answers, Connection},
-    e32linux::{M0Dtr, M1Rts, Serial, StandardDelay},
     rqparser::{SentenceParser, MAX_BUFFER_SIZE},
     rqprotocol::{Command, Node, Response, Transaction},
 };
+
+#[cfg(feature = "novaview")]
+use crate::e32linux::{M0Dtr, M1Rts, Serial, StandardDelay};
 
 const ANSWER_TIMEOUT: Duration = Duration::from_millis(100);
 
@@ -319,7 +321,10 @@ fn default_parameters() -> Parameters {
 }
 
 fn modem_baud_rate() -> BaudRate {
+    #[cfg(not(target_os = "windows"))]
     return BaudRate::Baud9600;
+    #[cfg(target_os = "windows")]
+    return BaudRate::Baud115200;
 }
 
 #[cfg(feature = "novaview")]

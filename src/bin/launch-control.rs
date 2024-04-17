@@ -22,14 +22,21 @@ use egui::Key;
 
 #[cfg(feature = "novaview")]
 use egui_sdl2_platform::sdl2;
-use log::info;
+#[cfg(feature = "novaview")]
+use egui_sdl2_platform::sdl2::joystick::Joystick;
+
+use log::{error, info};
 
 #[cfg(feature = "novaview")]
 use sdl2::event::{Event, WindowEvent};
 
-const SCREEN_WIDTH: u32 = 800;
-const SCREEN_HEIGHT: u32 = 480;
+const SCREEN_WIDTH: u32 = 1024;
+const SCREEN_HEIGHT: u32 = 600;
+
+#[cfg(not(feature = "novaview"))]
 const DEVICE: &str = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0";
+#[cfg(feature = "novaview")]
+const DEVICE: &str = "/dev/ttyAMA3";
 
 fn serial_port_path() -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
@@ -146,12 +153,56 @@ impl<C: Connection, Id: Iterator<Item = usize>> eframe::App for LaunchControlApp
 }
 
 #[cfg(feature = "novaview")]
+fn open_joystick(sdl: &sdl2::Sdl) -> Option<Joystick> {
+    let subsystem = match sdl.joystick() {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Can't open joystick subsystem, {}", e);
+            return None;
+        }
+    };
+    let num_sticks = match subsystem.num_joysticks() {
+        Ok(n) => n,
+        Err(e) => {
+            error!("Can't enumerate joysticks, {}", e);
+            return None;
+        }
+    };
+    let mut tiny_usb_device = None;
+    for i in 0..num_sticks {
+        match subsystem.name_for_index(i) {
+            Ok(name) => {
+                info!("Found stick {}", name);
+                if name == "TinyUSB Device" {
+                    tiny_usb_device = Some(i);
+                }
+            }
+            Err(e) => {
+                error!("Can't enumerate joysticks, {}", e);
+            }
+        }
+    }
+    if let Some(num) = tiny_usb_device {
+        let joystick = match subsystem.open(num) {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Can't open joystick, {}", e);
+                return None;
+            }
+        };
+        return Some(joystick);
+    }
+    None
+}
+
+#[cfg(feature = "novaview")]
 fn get_input_events(
     event_pump: &mut sdl2::EventPump,
     platform: &mut egui_sdl2_platform::Platform,
     sdl: &sdl2::Sdl,
     video: &mut sdl2::VideoSubsystem,
     window: &sdl2::video::Window,
+    joystick: &mut Option<JoystickProcessor>,
 ) -> (bool, Vec<InputEvent>) {
     let mut input_events = vec![];
     let mut quit = false;
@@ -202,7 +253,60 @@ fn get_input_events(
         // Let the egui platform handle the event
         platform.handle_event(&event, sdl, video);
     }
+    if let Some(joystick) = joystick {
+        joystick.produce_events(&mut input_events);
+    }
+
     (quit, input_events)
+}
+
+#[cfg(feature = "novaview")]
+struct JoystickProcessor {
+    joystick: Joystick,
+    position: i64,
+    trigger: i64,
+    right_pressed: bool,
+    left_pressed: bool,
+}
+
+#[cfg(feature = "novaview")]
+impl JoystickProcessor {
+    pub fn new(joystick: Joystick) -> Self {
+        Self {
+            joystick,
+            position: 0,
+            trigger: 0,
+            right_pressed: false,
+            left_pressed: false,
+        }
+    }
+
+    pub fn produce_events(&mut self, input_events: &mut Vec<InputEvent>) {
+        let axis0_value = self.joystick.axis(0).unwrap();
+        // deadzone
+        if axis0_value.abs() > 10 {
+            self.position += axis0_value as i64;
+        }
+        if (self.trigger - self.position).abs() > 1000_000 / 40 {
+            let diff = self.trigger - self.position;
+            if diff > 0 {
+                input_events.push(InputEvent::Right(10));
+            } else {
+                input_events.push(InputEvent::Left(10));
+            }
+            self.trigger = self.position;
+        }
+        let lbp = self.joystick.button(1).unwrap();
+        let rbp = self.joystick.button(0).unwrap();
+        if !self.left_pressed && lbp {
+            input_events.push(InputEvent::Back);
+        }
+        self.left_pressed = lbp;
+        if !self.right_pressed && rbp {
+            input_events.push(InputEvent::Enter);
+        }
+        self.right_pressed = rbp;
+    }
 }
 
 #[cfg(feature = "novaview")]
@@ -216,7 +320,8 @@ async fn run() -> anyhow::Result<()> {
 
     // Initialize sdl
     let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;
-    let mut mouse = sdl.mouse();
+    let mouse = sdl.mouse();
+    let mut joystick = open_joystick(&sdl).and_then(|j| Some(JoystickProcessor::new(j)));
 
     // Create the video subsystem
     let mut video = sdl
@@ -255,8 +360,14 @@ async fn run() -> anyhow::Result<()> {
 
     'main: loop {
         // Update the time
-        let (quit, input_events) =
-            get_input_events(&mut event_pump, &mut platform, &sdl, &mut video, &window);
+        let (quit, input_events) = get_input_events(
+            &mut event_pump,
+            &mut platform,
+            &sdl,
+            &mut video,
+            &window,
+            &mut joystick,
+        );
         if quit {
             break 'main;
         }
