@@ -7,6 +7,7 @@ use palette::{Gradient, LinSrgb};
 use uom::si::f64::Mass;
 
 use crate::connection::Connection;
+use crate::ebyte::modem_baud_rate;
 use crate::layout::colors::{color32, kind_color, kind_color32, Intensity, Kind};
 use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing};
 use crate::observables::rqa::{ObservablesGroup1, ObservablesGroup2, PyroStatus, RecordingState};
@@ -187,6 +188,17 @@ fn render_launch_control_interactions(ui: &mut Ui, state: &LaunchControlState) {
             render_digit(ui, hi_a, hi_a_hl);
             render_digit(ui, lo_a, lo_a_hl);
         });
+        ui.label(
+            RichText::new("Unlock Pyros")
+                .color(text_color(
+                    if let LaunchControlState::PrepareUnlockPyros { .. } = state {
+                        true
+                    } else {
+                        false
+                    },
+                ))
+                .heading(),
+        );
         render_progress(ui, state, state.unlock_pyros_progress(), false);
         ui.horizontal(|ui| {
             egui::SidePanel::left("key b left")
@@ -204,6 +216,17 @@ fn render_launch_control_interactions(ui: &mut Ui, state: &LaunchControlState) {
             render_digit(ui, hi_b, hi_b_hl);
             render_digit(ui, lo_b, lo_b_hl);
         });
+        ui.label(
+            RichText::new("Arm Pyros")
+                .color(text_color(
+                    if let LaunchControlState::PrepareIgnition { .. } = state {
+                        true
+                    } else {
+                        false
+                    },
+                ))
+                .heading(),
+        );
         render_progress(ui, state, state.prepare_ignition_progress(), true);
         render_fire(ui, state);
     });
