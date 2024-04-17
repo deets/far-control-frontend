@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use egui::epaint::Shadow;
 use egui::{vec2, Align2, Color32, FontId, Frame, Id, ProgressBar, RichText, Sense, Stroke, Ui};
-use emath::{pos2, Pos2};
+use emath::{pos2, Pos2, Vec2};
 use palette::{Gradient, LinSrgb};
 use uom::si::f64::Mass;
 
@@ -203,50 +203,61 @@ fn vbb_from_obg2(obg2: &Option<ObservablesGroup2>) -> String {
     }
 }
 
-fn pyro_from_obg2(pyro_status: Option<PyroStatus>) -> String {
-    match pyro_status {
-        Some(pyro_status) => format!("{:?}", pyro_status),
-        None => "--".into(),
-    }
+fn render_pyro_state(ui: &mut Ui, pyro_status: Option<PyroStatus>, height: f32) {
+    let rect = Vec2::new(ui.available_width(), height);
+    let (_response, painter) = ui.allocate_painter(rect.into(), Sense::hover());
+    let center = painter.clip_rect().center();
+    painter.circle_filled(center, height * 1.0 * 0.5, Color32::BLACK);
+    painter.circle_filled(
+        center,
+        height * 0.9 * 0.5,
+        match pyro_status {
+            Some(pyro_status) => match pyro_status {
+                PyroStatus::Unknown => Color32::DARK_GRAY,
+                PyroStatus::Open => Color32::RED,
+                PyroStatus::Closed => Color32::GREEN,
+            },
+            None => Color32::DARK_GRAY,
+        },
+    );
 }
 
 fn render_launch_control_powerstate(ui: &mut Ui, obg2: &Option<ObservablesGroup2>) {
     let digit_font = FontId::new(54.0, egui::FontFamily::Monospace);
+    let painter = ui.painter();
+    let galley = painter.layout_no_wrap("X".into(), digit_font.clone(), Color32::RED);
+    let char_height = galley.rect.height();
+
     ui.vertical(|ui| {
         ui.label(
             RichText::new("VBB")
                 .font(digit_font.clone())
-                .color(Color32::WHITE),
+                .color(Color32::BLACK),
         );
         ui.label(
             RichText::new(vbb_from_obg2(obg2))
                 .font(digit_font.clone())
-                .color(Color32::WHITE),
+                .color(Color32::BLACK),
         );
-
         ui.label(
             RichText::new("Pyro 1/2")
                 .font(digit_font.clone())
-                .color(Color32::WHITE),
+                .color(Color32::BLACK),
         );
-        ui.label(
-            RichText::new(pyro_from_obg2(
-                obg2.clone().and_then(|obg2| Some(obg2.pyro12_status)),
-            ))
-            .font(digit_font.clone())
-            .color(Color32::WHITE),
+        render_pyro_state(
+            ui,
+            obg2.clone().and_then(|obg2| Some(obg2.pyro12_status)),
+            char_height,
         );
         ui.label(
             RichText::new("Pyro 3/4")
                 .font(digit_font.clone())
-                .color(Color32::WHITE),
+                .color(Color32::BLACK),
         );
-        ui.label(
-            RichText::new(pyro_from_obg2(
-                obg2.clone().and_then(|obg2| Some(obg2.pyro34_status)),
-            ))
-            .font(digit_font.clone())
-            .color(Color32::WHITE),
+        render_pyro_state(
+            ui,
+            obg2.clone().and_then(|obg2| Some(obg2.pyro34_status)),
+            char_height,
         );
     });
 }
