@@ -138,8 +138,7 @@ fn render_fire(ui: &mut Ui, state: &LaunchControlState) {
     );
 }
 
-fn render_progress(ui: &mut Ui, state: &LaunchControlState) {
-    let progress = state.prepare_ignition_progress() as f32 / 100.0;
+fn render_progress(ui: &mut Ui, state: &LaunchControlState, progress: f32, ignition: bool) {
     let gradient = Gradient::new(vec![
         LinSrgb::new(0.0, 1.0, 0.0),
         LinSrgb::new(1.0, 1.0, 0.0),
@@ -148,7 +147,20 @@ fn render_progress(ui: &mut Ui, state: &LaunchControlState) {
     let color = color32(gradient.get(progress));
 
     let pbar = ProgressBar::new(progress).fill(match state {
-        LaunchControlState::PrepareIgnition { .. } => color,
+        LaunchControlState::PrepareIgnition { .. } => {
+            if ignition {
+                color
+            } else {
+                Color32::DARK_GRAY
+            }
+        }
+        LaunchControlState::PrepareUnlockPyros { .. } => {
+            if !ignition {
+                color
+            } else {
+                Color32::DARK_GRAY
+            }
+        }
         _ => Color32::DARK_GRAY,
     });
     ui.add(pbar);
@@ -175,6 +187,7 @@ fn render_launch_control_interactions(ui: &mut Ui, state: &LaunchControlState) {
             render_digit(ui, hi_a, hi_a_hl);
             render_digit(ui, lo_a, lo_a_hl);
         });
+        render_progress(ui, state, state.unlock_pyros_progress(), false);
         ui.horizontal(|ui| {
             egui::SidePanel::left("key b left")
                 .resizable(false)
@@ -191,7 +204,7 @@ fn render_launch_control_interactions(ui: &mut Ui, state: &LaunchControlState) {
             render_digit(ui, hi_b, hi_b_hl);
             render_digit(ui, lo_b, lo_b_hl);
         });
-        render_progress(ui, state);
+        render_progress(ui, state, state.prepare_ignition_progress(), true);
         render_fire(ui, state);
     });
 }

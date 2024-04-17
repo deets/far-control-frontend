@@ -378,6 +378,14 @@ fn command_ignition_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
     Ok((rest, transaction))
 }
 
+fn command_unlock_pyros_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
+    // LNCCMD,123,RQA,UNLOCK_PYROS
+    let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
+    let (rest, _) = tag(b"UNLOCK_PYROS")(rest)?;
+    let transaction = Transaction::new(source, recipient, command_id, Command::UnlockPyros);
+    Ok((rest, transaction))
+}
+
 fn command_secret_partial_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
     // LNCCMD,123,RQA,SECRET_A,3F
     let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
@@ -422,6 +430,7 @@ pub fn command_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
     alt((
         command_reset_parser,
         command_ignition_parser,
+        command_unlock_pyros_parser,
         command_secret_partial_parser,
         command_secret_full_parser,
         command_ping_parser,
@@ -834,6 +843,19 @@ mod tests {
                     source: Node::LaunchControl,
                     recipient: Node::RedQueen(b'A'),
                     command: Command::Ignition,
+                    ..
+                }
+            ))
+        );
+        assert_matches!(
+            command_parser(b"LNCCMD,123,RQA,UNLOCK_PYROS"),
+            Ok((
+                b"",
+                Transaction {
+                    id: 123,
+                    source: Node::LaunchControl,
+                    recipient: Node::RedQueen(b'A'),
+                    command: Command::UnlockPyros,
                     ..
                 }
             ))

@@ -55,7 +55,17 @@ pub enum LaunchControlState {
         hi_a: u8,
         lo_a: u8,
     },
-    TransmitSecretA {
+    TransmitKeyA {
+        hi_a: u8,
+        lo_a: u8,
+    },
+    PrepareUnlockPyros {
+        hi_a: u8,
+        lo_a: u8,
+        progress: u8,
+        last_update: Instant,
+    },
+    UnlockPyros {
         hi_a: u8,
         lo_a: u8,
     },
@@ -70,7 +80,7 @@ pub enum LaunchControlState {
         hi_b: u8,
         lo_b: u8,
     },
-    TransmitSecretAB {
+    TransmitKeyAB {
         hi_a: u8,
         lo_a: u8,
         hi_b: u8,
@@ -168,15 +178,24 @@ impl StateProcessing for LaunchControlState {
                 _ => Self::State::Start,
             },
             Self::State::Idle => *self,
-            Self::TransmitSecretA { hi_a, lo_a } => match response {
-                Response::LaunchSecretPartialAck => Self::State::EnterDigitHiB {
+            Self::TransmitKeyA { hi_a, lo_a } => match response {
+                Response::LaunchSecretPartialAck => Self::PrepareUnlockPyros {
+                    hi_a: *hi_a,
+                    lo_a: *lo_a,
+                    progress: 0,
+                    last_update: Instant::now(),
+                },
+                _ => Self::State::Start,
+            },
+            Self::UnlockPyros { hi_a, lo_a, .. } => match response {
+                Response::UnlockPyrosAck => Self::State::EnterDigitHiB {
                     hi_a: *hi_a,
                     lo_a: *lo_a,
                     hi_b: 0,
                 },
                 _ => Self::State::Start,
             },
-            Self::TransmitSecretAB {
+            Self::TransmitKeyAB {
                 hi_a,
                 lo_a,
                 hi_b,
@@ -208,10 +227,12 @@ impl StateProcessing for LaunchControlState {
             Self::State::Idle => "Idle",
             Self::State::EnterDigitHiA { .. } => "Enter Hi A",
             Self::State::EnterDigitLoA { .. } => "Enter Lo A",
-            Self::State::TransmitSecretA { .. } => "Transmitting Secret A",
+            Self::State::PrepareUnlockPyros { .. } => "Prepare Unlock Pyros",
+            Self::State::UnlockPyros { .. } => "Unlocking Pyros",
+            Self::State::TransmitKeyA { .. } => "Transmitting Key A",
             Self::State::EnterDigitHiB { .. } => "Enter Hi B",
             Self::State::EnterDigitLoB { .. } => "Enter Lo B",
-            Self::State::TransmitSecretAB { .. } => "Transmitting Secret AB",
+            Self::State::TransmitKeyAB { .. } => "Transmitting Key AB",
             Self::State::PrepareIgnition { .. } => "Prepare Ignition",
             Self::State::WaitForFire { .. } => "Wait for Fire",
             Self::State::Fire { .. } => "Fire!",
@@ -266,6 +287,12 @@ impl StateProcessing for LaunchControlState {
                 *progress,
                 *last_update,
             ),
+            LaunchControlState::PrepareUnlockPyros {
+                hi_a,
+                lo_a,
+                progress,
+                last_update,
+            } => self.process_unlock_pyros(event, *hi_a, *lo_a, *progress, *last_update),
             LaunchControlState::WaitForFire {
                 hi_a,
                 lo_a,
@@ -273,21 +300,23 @@ impl StateProcessing for LaunchControlState {
                 lo_b,
             } => self.process_fire(event, *hi_a, *lo_a, *hi_b, *lo_b),
             // only left through a response
-            LaunchControlState::TransmitSecretA { .. } => (*self, ControlArea::Details),
+            LaunchControlState::TransmitKeyA { .. } => (*self, ControlArea::Details),
             // only left through a response
-            LaunchControlState::TransmitSecretAB { .. } => (*self, ControlArea::Details),
+            LaunchControlState::TransmitKeyAB { .. } => (*self, ControlArea::Details),
             // only left through a response
             LaunchControlState::Fire => (*self, ControlArea::Details),
+            // only left through a response
+            LaunchControlState::UnlockPyros { .. } => (*self, ControlArea::Details),
             _ => self.process_event_nop(event),
         }
     }
 
     fn process_mode_change(&self) -> Option<Command> {
         match self {
-            LaunchControlState::TransmitSecretA { hi_a, lo_a } => {
+            LaunchControlState::TransmitKeyA { hi_a, lo_a } => {
                 Some(Command::LaunchSecretPartial(hi_a << 4 | lo_a))
             }
-            LaunchControlState::TransmitSecretAB {
+            LaunchControlState::TransmitKeyAB {
                 hi_a,
                 lo_a,
                 hi_b,
@@ -297,6 +326,7 @@ impl StateProcessing for LaunchControlState {
                 hi_b << 4 | lo_b,
             )),
             LaunchControlState::Fire => Some(Command::Ignition),
+            LaunchControlState::UnlockPyros { .. } => Some(Command::UnlockPyros),
             _ => None,
         }
     }
@@ -315,6 +345,25 @@ impl StateProcessing for LaunchControlState {
                 lo_a: *lo_a,
                 hi_b: *hi_b,
                 lo_b: *lo_b,
+                progress: if *progress < 100 {
+                    if last_update.elapsed() > Duration::from_millis(500) {
+                        std::cmp::max(*progress, 1) - 1
+                    } else {
+                        *progress
+                    }
+                } else {
+                    100
+                },
+                last_update: *last_update,
+            },
+            LaunchControlState::PrepareUnlockPyros {
+                hi_a,
+                lo_a,
+                progress,
+                last_update,
+            } => LaunchControlState::PrepareUnlockPyros {
+                hi_a: *hi_a,
+                lo_a: *lo_a,
                 progress: if *progress < 100 {
                     if last_update.elapsed() > Duration::from_millis(500) {
                         std::cmp::max(*progress, 1) - 1
@@ -542,7 +591,9 @@ impl LaunchControlState {
             LaunchControlState::Idle => (0, 0, 0, 0),
             LaunchControlState::EnterDigitHiA { hi_a } => (*hi_a, 0, 0, 0),
             LaunchControlState::EnterDigitLoA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
-            LaunchControlState::TransmitSecretA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
+            LaunchControlState::PrepareUnlockPyros { hi_a, lo_a, .. } => (*hi_a, *lo_a, 0, 0),
+            LaunchControlState::UnlockPyros { hi_a, lo_a, .. } => (*hi_a, *lo_a, 0, 0),
+            LaunchControlState::TransmitKeyA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
             LaunchControlState::EnterDigitHiB { hi_a, lo_a, hi_b } => (*hi_a, *lo_a, *hi_b, 0),
             LaunchControlState::EnterDigitLoB {
                 hi_a,
@@ -550,7 +601,7 @@ impl LaunchControlState {
                 hi_b,
                 lo_b,
             } => (*hi_a, *lo_a, *hi_b, *lo_b),
-            LaunchControlState::TransmitSecretAB {
+            LaunchControlState::TransmitKeyAB {
                 hi_a,
                 lo_a,
                 hi_b,
@@ -583,12 +634,28 @@ impl LaunchControlState {
         }
     }
 
-    pub fn prepare_ignition_progress(&self) -> u8 {
-        match self {
+    pub fn prepare_ignition_progress(&self) -> f32 {
+        let p = match self {
             LaunchControlState::PrepareIgnition { progress, .. } => *progress,
             LaunchControlState::WaitForFire { .. } => 100,
             _ => 0,
-        }
+        };
+        p as f32 / 100.0
+    }
+
+    pub fn unlock_pyros_progress(&self) -> f32 {
+        let p = match self {
+            LaunchControlState::Start => 0,
+            LaunchControlState::Failure => 0,
+            LaunchControlState::Reset => 0,
+            LaunchControlState::Idle => 0,
+            LaunchControlState::EnterDigitHiA { .. } => 0,
+            LaunchControlState::EnterDigitLoA { .. } => 0,
+            LaunchControlState::TransmitKeyA { .. } => 0,
+            LaunchControlState::PrepareUnlockPyros { progress, .. } => *progress,
+            _ => 100,
+        };
+        p as f32 / 100.0
     }
 
     fn process_event_nop(&self, _event: &InputEvent) -> (Self, ControlArea) {
@@ -640,7 +707,7 @@ impl LaunchControlState {
     ) -> (Self, ControlArea) {
         match event {
             InputEvent::Enter => (
-                LaunchControlState::TransmitSecretA { hi_a, lo_a },
+                LaunchControlState::TransmitKeyA { hi_a, lo_a },
                 ControlArea::Details,
             ),
             // Back to high digit!
@@ -714,7 +781,7 @@ impl LaunchControlState {
     ) -> (Self, ControlArea) {
         match event {
             InputEvent::Enter => (
-                LaunchControlState::TransmitSecretAB {
+                LaunchControlState::TransmitKeyAB {
                     hi_a,
                     lo_a,
                     hi_b,
@@ -790,6 +857,45 @@ impl LaunchControlState {
                         lo_a,
                         hi_b,
                         lo_b,
+                        progress,
+                        last_update,
+                    },
+                    ControlArea::Details,
+                ),
+            }
+        }
+    }
+
+    fn process_unlock_pyros(
+        &self,
+        event: &InputEvent,
+        hi_a: u8,
+        lo_a: u8,
+        progress: u8,
+        last_update: Instant,
+    ) -> (Self, ControlArea) {
+        let now = Instant::now();
+        if progress == 100 {
+            (
+                LaunchControlState::UnlockPyros { hi_a, lo_a },
+                ControlArea::Details,
+            )
+        } else {
+            match event {
+                InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
+                InputEvent::Right(_) => (
+                    LaunchControlState::PrepareUnlockPyros {
+                        hi_a,
+                        lo_a,
+                        progress: std::cmp::min(progress + 3, 100),
+                        last_update: now,
+                    },
+                    ControlArea::Details,
+                ),
+                _ => (
+                    LaunchControlState::PrepareUnlockPyros {
+                        hi_a,
+                        lo_a,
                         progress,
                         last_update,
                     },
@@ -1038,7 +1144,7 @@ mod tests {
             todo!()
         }
 
-        fn open(&mut self, port: &str) {
+        fn open(&mut self, _port: &str) {
             todo!()
         }
     }

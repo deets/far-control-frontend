@@ -58,6 +58,7 @@ pub struct AckHeader {
 pub enum Command {
     Reset,
     LaunchSecretPartial(u8),
+    UnlockPyros,
     LaunchSecretFull(u8, u8),
     Ignition,
     Ping,
@@ -75,6 +76,7 @@ pub enum Response {
     ResetAck,
     IgnitionAck,
     LaunchSecretFullAck,
+    UnlockPyrosAck,
     LaunchSecretPartialAck,
     PingAck,
     ObservableGroup(RawObservablesGroup),
@@ -84,6 +86,7 @@ pub enum Response {
 enum CommandProcessor {
     ResetAck,
     LaunchSecretPartial(u8),
+    UnlockPyrosAck,
     LaunchSecretFull(u8, u8),
     IgnitionAck,
     PingAck,
@@ -95,6 +98,7 @@ impl Command {
         match self {
             Command::Reset => b"RESET",
             Command::LaunchSecretPartial(_) => b"SECRET_A",
+            Command::UnlockPyros => b"UNLOCK_PYROS",
             Command::LaunchSecretFull(_, _) => b"SECRET_AB",
             Command::Ignition => b"IGNITION",
             Command::Ping => b"PING",
@@ -106,6 +110,7 @@ impl Command {
         match self {
             Command::Reset => CommandProcessor::ResetAck,
             Command::LaunchSecretPartial(a) => CommandProcessor::LaunchSecretPartial(*a),
+            Command::UnlockPyros => CommandProcessor::UnlockPyrosAck,
             Command::LaunchSecretFull(a, b) => CommandProcessor::LaunchSecretFull(*a, *b),
             Command::Ignition => CommandProcessor::IgnitionAck,
             Command::Ping => CommandProcessor::PingAck,
@@ -358,6 +363,7 @@ impl Marshal for Command {
         match self {
             Command::Reset => Ok(range),
             Command::LaunchSecretPartial(a) => u8_parameter(buffer, range, *a),
+            Command::UnlockPyros => Ok(range),
             Command::LaunchSecretFull(a, b) => {
                 let range = u8_parameter(buffer, range, *a)?;
                 u8_parameter(buffer, range, *b)
@@ -491,6 +497,7 @@ impl CommandProcessor {
                     Err(Error::ParseError)
                 }
             }
+            CommandProcessor::UnlockPyrosAck => Ok((params, Response::UnlockPyrosAck)),
             CommandProcessor::LaunchSecretFull(a, b) => {
                 let (rest, (param1, param2)) = two_return_values_parser(params)?;
                 if param1 == *a && param2 == *b {
