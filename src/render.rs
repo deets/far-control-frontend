@@ -9,7 +9,7 @@ use uom::si::f64::Mass;
 use crate::connection::Connection;
 use crate::layout::colors::{color32, kind_color, kind_color32, Intensity, Kind};
 use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing};
-use crate::observables::rqa::{ObservablesGroup1, ObservablesGroup2, RecordingState};
+use crate::observables::rqa::{ObservablesGroup1, ObservablesGroup2, PyroStatus, RecordingState};
 
 // fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
 //     let lt = rect.left_top();
@@ -154,19 +154,20 @@ fn render_progress(ui: &mut Ui, state: &LaunchControlState) {
     ui.add(pbar);
 }
 
-fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
+fn render_launch_control_interactions(ui: &mut Ui, state: &LaunchControlState) {
     let (hi_a, lo_a, hi_b, lo_b) = state.digits();
     let (hi_a_hl, lo_a_hl, hi_b_hl, lo_b_hl) = state.highlights();
+
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
-            egui::SidePanel::left("secret a left")
+            egui::SidePanel::left("key a left")
                 .resizable(false)
                 .show_separator_line(false)
                 .frame(clear_frame())
                 .exact_width(ui.available_width() / 3.0)
                 .show_inside(ui, |ui| {
                     ui.label(
-                        RichText::new("Enter Secret A")
+                        RichText::new("Enter Key A")
                             .color(text_color(hi_a_hl || lo_a_hl))
                             .heading(),
                     );
@@ -175,14 +176,14 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
             render_digit(ui, lo_a, lo_a_hl);
         });
         ui.horizontal(|ui| {
-            egui::SidePanel::left("secret b left")
+            egui::SidePanel::left("key b left")
                 .resizable(false)
                 .show_separator_line(false)
                 .frame(clear_frame())
                 .exact_width(ui.available_width() / 3.0)
                 .show_inside(ui, |ui| {
                     ui.label(
-                        RichText::new("Enter Secret B")
+                        RichText::new("Enter Key B")
                             .color(text_color(hi_b_hl || lo_b_hl))
                             .heading(),
                     );
@@ -192,6 +193,91 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlState) {
         });
         render_progress(ui, state);
         render_fire(ui, state);
+    });
+}
+
+fn vbb_from_obg2(obg2: &Option<ObservablesGroup2>) -> String {
+    match obg2 {
+        Some(obg2) => format!("{:03.2}", obg2.vbb_voltage),
+        None => "--.--".into(),
+    }
+}
+
+fn pyro_from_obg2(pyro_status: Option<PyroStatus>) -> String {
+    match pyro_status {
+        Some(pyro_status) => format!("{:?}", pyro_status),
+        None => "--".into(),
+    }
+}
+
+fn render_launch_control_powerstate(ui: &mut Ui, obg2: &Option<ObservablesGroup2>) {
+    let digit_font = FontId::new(54.0, egui::FontFamily::Monospace);
+    ui.vertical(|ui| {
+        ui.label(
+            RichText::new("VBB")
+                .font(digit_font.clone())
+                .color(Color32::WHITE),
+        );
+        ui.label(
+            RichText::new(vbb_from_obg2(obg2))
+                .font(digit_font.clone())
+                .color(Color32::WHITE),
+        );
+
+        ui.label(
+            RichText::new("Pyro 1/2")
+                .font(digit_font.clone())
+                .color(Color32::WHITE),
+        );
+        ui.label(
+            RichText::new(pyro_from_obg2(
+                obg2.clone().and_then(|obg2| Some(obg2.pyro12_status)),
+            ))
+            .font(digit_font.clone())
+            .color(Color32::WHITE),
+        );
+        ui.label(
+            RichText::new("Pyro 3/4")
+                .font(digit_font.clone())
+                .color(Color32::WHITE),
+        );
+        ui.label(
+            RichText::new(pyro_from_obg2(
+                obg2.clone().and_then(|obg2| Some(obg2.pyro34_status)),
+            ))
+            .font(digit_font.clone())
+            .color(Color32::WHITE),
+        );
+    });
+}
+
+fn render_launch_control(
+    ui: &mut Ui,
+    state: &LaunchControlState,
+    obg2: &Option<ObservablesGroup2>,
+) {
+    ui.horizontal(|ui| {
+        let left_width = (ui.available_width() * 0.7).ceil();
+        let right_width = ui.available_width() - left_width;
+        egui::SidePanel::left("lc_interactions")
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(clear_frame())
+            .exact_width(left_width)
+            .show_inside(ui, |ui| render_launch_control_interactions(ui, state));
+        egui::SidePanel::right("powerstate")
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::containers::Frame {
+                rounding: egui::Rounding::default(),
+                fill: kind_color32(Kind::Observables, Intensity::Low),
+                stroke: egui::Stroke::NONE,
+                inner_margin: 10.0.into(),
+                outer_margin: 10.0.into(),
+                shadow: Shadow::NONE,
+            })
+            .exact_width(right_width)
+            .show_inside(ui, |ui| render_launch_control_powerstate(ui, obg2));
     });
 }
 
@@ -300,14 +386,60 @@ fn render_observables(
                 );
             }
         });
+        ui.horizontal(|ui| {
+            egui::SidePanel::left("vbb_voltage")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(clear_frame())
+                .resizable(false)
+                .exact_width(ui.available_width() / 5.0)
+                .show_inside(ui, |ui| {
+                    ui.label(
+                        RichText::new("VBB Voltage")
+                            .color(text_color(false))
+                            .heading(),
+                    );
+                });
+            if let Some(obg2) = obg2 {
+                ui.label(
+                    RichText::new(format!("{}", obg2.vbb_voltage))
+                        .heading()
+                        .color(Color32::WHITE),
+                );
+            }
+        });
+        ui.horizontal(|ui| {
+            egui::SidePanel::left("pyro_status")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(clear_frame())
+                .resizable(false)
+                .exact_width(ui.available_width() / 5.0)
+                .show_inside(ui, |ui| {
+                    ui.label(RichText::new("Pyros").color(text_color(false)).heading());
+                });
+            if let Some(obg2) = obg2 {
+                ui.label(
+                    RichText::new(format!("1/2: {:?}", obg2.pyro12_status))
+                        .heading()
+                        .color(Color32::WHITE),
+                );
+                ui.label(
+                    RichText::new(format!("3/4: {:?}", obg2.pyro34_status))
+                        .heading()
+                        .color(Color32::WHITE),
+                );
+            }
+        });
     });
 }
 
 fn render_body<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, state: &Model<C, Id>) {
+    let obg2 = state.obg2.clone();
     match state.mode {
-        Mode::Observables(_state) => render_observables(ui, &state.obg1, &state.obg2),
+        Mode::Observables(_state) => render_observables(ui, &state.obg1, &obg2),
         Mode::LaunchControl(state) => {
-            render_launch_control(ui, &state);
+            render_launch_control(ui, &state, &obg2);
         }
     }
 }

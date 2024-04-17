@@ -36,6 +36,8 @@ pub mod rqa {
         pub state: u8,
         pub filename_or_error: Vec<u8>,
         pub anomalies: u32,
+        pub vbb_voltage: u16,
+        pub pyro_status: u8,
     }
 
     #[derive(Clone, PartialEq, Debug)]
@@ -59,9 +61,20 @@ pub mod rqa {
         Recording(String),
     }
 
+    #[derive(Clone, PartialEq, Debug)]
+    pub enum PyroStatus {
+        Unknown,
+        Open,
+        Closed,
+    }
+
+    #[derive(Clone, Debug)]
     pub struct ObservablesGroup2 {
         pub recording_state: RecordingState,
         pub anomalies: u32,
+        pub vbb_voltage: f32,
+        pub pyro12_status: PyroStatus,
+        pub pyro34_status: PyroStatus,
     }
 
     pub struct SystemDefinition {
@@ -91,7 +104,17 @@ pub mod rqa {
         }
 
         pub fn transform_og2(&self, raw: &RawObservablesGroup2) -> ObservablesGroup2 {
+            fn pyro_status_from_bitfield(value: u8) -> PyroStatus {
+                match value {
+                    0 => PyroStatus::Unknown,
+                    2 => PyroStatus::Open,
+                    3 => PyroStatus::Closed,
+                    _ => unreachable!(),
+                }
+            }
+
             let anomalies = raw.anomalies;
+            let vbb_voltage = raw.vbb_voltage as f32 * 0.00125;
             ObservablesGroup2 {
                 recording_state: match raw.state {
                     b'U' => RecordingState::Unknown,
@@ -109,6 +132,9 @@ pub mod rqa {
                     _ => unreachable!(),
                 },
                 anomalies,
+                vbb_voltage,
+                pyro12_status: pyro_status_from_bitfield(raw.pyro_status & 0x03),
+                pyro34_status: pyro_status_from_bitfield(raw.pyro_status >> 4 & 0x03),
             }
         }
     }
@@ -135,6 +161,7 @@ impl AdcWeightCalibration {
         Mass::new::<gram>(res)
     }
 }
+
 #[cfg(test)]
 mod tests {
 

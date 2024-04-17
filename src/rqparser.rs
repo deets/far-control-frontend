@@ -439,6 +439,26 @@ fn hex_u32_parser(s: &[u8]) -> IResult<&[u8], u32> {
     Ok((rest, res))
 }
 
+fn hex_u16_parser(s: &[u8]) -> IResult<&[u8], u16> {
+    let (rest, out) = take_while_m_n(4, 4, is_hex_digit)(s)?;
+    let mut res: u16 = 0;
+    for i in 0..4 {
+        res <<= 4;
+        res |= unhex(out[i]).unwrap() as u16;
+    }
+    Ok((rest, res))
+}
+
+fn hex_u8_parser(s: &[u8]) -> IResult<&[u8], u8> {
+    let (rest, out) = take_while_m_n(2, 2, is_hex_digit)(s)?;
+    let mut res: u8 = 0;
+    for i in 0..2 {
+        res <<= 4;
+        res |= unhex(out[i]).unwrap() as u8;
+    }
+    Ok((rest, res))
+}
+
 fn hex_i32_parser(s: &[u8]) -> IResult<&[u8], i32> {
     let (rest, num) = hex_u32_parser(s)?;
     Ok((rest, num as i32))
@@ -518,20 +538,42 @@ fn string_parser(s: &[u8]) -> IResult<&[u8], Vec<u8>> {
 
 pub fn rqa_obg2_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObservablesGroup2)> {
     // RQAOBG,123,LNC,2,R,FOOBAR.TXT
-    let (rest, (source, _, command_id, _, recipient, _, state, _, filename_or_error, _, anomalies)) =
-        tuple((
-            node_parser,
-            tag(b"OBG,"),
-            command_id_parser,
-            tag(b","),
-            node_parser,
-            tag(",2,"),
-            alt((tag("E"), tag("P"), tag("U"), tag("R"))),
-            tag(","),
-            string_parser,
-            tag(","),
-            hex_u32_parser,
-        ))(s)?;
+    let (
+        rest,
+        (
+            source,
+            _,
+            command_id,
+            _,
+            recipient,
+            _,
+            state,
+            _,
+            filename_or_error,
+            _,
+            anomalies,
+            _,
+            vbb_voltage,
+            _,
+            pyro_status,
+        ),
+    ) = tuple((
+        node_parser,
+        tag(b"OBG,"),
+        command_id_parser,
+        tag(b","),
+        node_parser,
+        tag(",2,"),
+        alt((tag("E"), tag("P"), tag("U"), tag("R"))),
+        tag(","),
+        string_parser,
+        tag(","),
+        hex_u32_parser,
+        tag(","),
+        hex_u16_parser,
+        tag(","),
+        hex_u8_parser,
+    ))(s)?;
     Ok((
         rest,
         (
@@ -542,6 +584,8 @@ pub fn rqa_obg2_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObserv
                 state: state[0],
                 filename_or_error,
                 anomalies,
+                vbb_voltage,
+                pyro_status,
             },
         ),
     ))
@@ -894,7 +938,7 @@ mod tests {
     #[test]
     fn test_obg2_parser() {
         assert_matches!(
-            rqa_obg2_parser(b"RQAOBG,123,LNC,2,R,TEST.DAT,000000FF"),
+            rqa_obg2_parser(b"RQAOBG,123,LNC,2,R,TEST.DAT,000000FF,007E,03"),
             Ok((
                 b"",
                 (
@@ -904,6 +948,8 @@ mod tests {
                     RawObservablesGroup2 {
                         state: b'R',
                         anomalies: 255,
+                        vbb_voltage: 0x007E,
+                        pyro_status: 0x03,
                         ..
                     }
                 )
