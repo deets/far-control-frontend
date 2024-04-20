@@ -679,6 +679,7 @@ name = "control-frontend"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "crossbeam",
  "crossbeam-channel",
  "ebyte-e32",

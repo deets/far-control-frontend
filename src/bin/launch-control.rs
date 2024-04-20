@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use std::time::Instant;
 
+use clap::Parser;
+use control_frontend::args::ProgramArgs;
 use control_frontend::connection::Connection;
 use control_frontend::consort::Consort;
 use control_frontend::input::InputEvent;
@@ -85,12 +87,16 @@ where
 
 impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
     fn new(id_generator: Id, conn: C) -> Self {
+        let args = ProgramArgs::parse();
         let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
         let start_time = Instant::now();
 
         let consort =
             Consort::new_with_id_generator(me, target_red_queen, start_time, id_generator);
-        let port_path = serial_port_path().unwrap();
+        let port_path = args
+            .port
+            .or_else(|| serial_port_path())
+            .expect("No serial port found");
         info!("Opening E32 {}", port_path);
         let model = Model::new(consort, conn, start_time, &port_path);
 

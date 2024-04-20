@@ -1,4 +1,5 @@
 #![feature(assert_matches, slice_pattern, exclusive_range_pattern)]
+pub mod args;
 pub mod connection;
 pub mod consort;
 #[cfg(feature = "novaview")]
