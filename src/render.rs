@@ -543,6 +543,13 @@ fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
         };
         ui.label(model.mode().name());
         ui.label(format!("E32 baud rate: {:?}", modem_baud_rate()));
+        ui.label(format!(
+            "Connected: {}",
+            model.uptime().map_or("--:--".to_string(), |duration| {
+                let seconds = duration.as_secs();
+                format!("{}:{:02}", seconds / 60, seconds % 60)
+            })
+        ));
     });
 }
 
