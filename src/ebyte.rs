@@ -253,15 +253,12 @@ where
         module: &mut E32Module,
         callback: impl FnOnce(&Vec<u8>),
     ) -> bool {
-        let last_comm = Instant::now();
         let mut count = 0;
         let mut sentence_parser = SentenceParser::new();
-
         loop {
             match block!(module.read()) {
                 Ok(b) => {
                     let mut sentence: Option<Vec<u8>> = None;
-                    // debug!("rx: {}", b as char);
                     sentence_parser
                         .feed(&[b], |sentence_| sentence = Some(sentence_.to_vec()))
                         .expect("error parsing sentence");
@@ -273,7 +270,6 @@ where
                 }
                 Err(err) => match err.kind() {
                     std::io::ErrorKind::TimedOut => {
-                        debug!("{:?}", last_comm.elapsed());
                         count += 1;
                         if count > 50 {
                             break;
@@ -311,7 +307,8 @@ fn default_parameters() -> Parameters {
         channel: 0x17,
         uart_parity: ebyte_e32::parameters::Parity::None,
         uart_rate: ebyte_e32::parameters::BaudRate::Bps9600,
-        air_rate: ebyte_e32::parameters::AirBaudRate::Bps19200,
+        //air_rate: ebyte_e32::parameters::AirBaudRate::Bps19200,
+        air_rate: ebyte_e32::parameters::AirBaudRate::Bps9600,
         transmission_mode: ebyte_e32::parameters::TransmissionMode::Transparent,
         io_drive_mode: ebyte_e32::parameters::IoDriveMode::PushPull,
         wakeup_time: ebyte_e32::parameters::WakeupTime::Ms250,
@@ -324,7 +321,8 @@ pub fn modem_baud_rate() -> BaudRate {
     #[cfg(not(target_os = "windows"))]
     return BaudRate::Baud9600;
     #[cfg(target_os = "windows")]
-    return BaudRate::Baud115200;
+    return BaudRate::Baud9600;
+    //return BaudRate::Baud115200;
 }
 
 #[cfg(feature = "novaview")]
@@ -374,15 +372,14 @@ fn create(port: &str, parameters: Parameters) -> anyhow::Result<E32Module> {
         stop_bits,
         flow_control: FlowControl::FlowNone,
     };
-    let mut config_settings = comms_settings.clone();
-    config_settings.baud_rate = BaudRate::Baud9600;
+    let config_settings = comms_settings.clone();
 
     let mut port = ::serial::open(port)?;
     port.configure(&config_settings)?;
     port.set_timeout(ANSWER_TIMEOUT)?;
 
     let port = Rc::new(RefCell::new(port));
-    let mut serial = Serial::new(port.clone());
+    let serial = Serial::new(port.clone());
 
     let aux = CtsAux::new(port.clone());
 
