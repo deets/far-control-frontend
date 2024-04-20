@@ -107,7 +107,7 @@ pub mod rqa {
         pub fn transform_og1(&self, raw: &RawObservablesGroup1) -> ObservablesGroup1 {
             let uptime = raw.uptime.duration(&raw.clkfreq);
             let thrust = self.thrust_calibration.weight(raw.thrust.clone());
-            let pressure = self.pressure_calibration.weight(raw.pressure.clone());
+            let pressure = self.pressure_calibration.pressure(raw.pressure.clone());
             ObservablesGroup1 {
                 clkfreq: raw.clkfreq,
                 uptime,
@@ -176,7 +176,7 @@ impl AdcWeightCalibration {
 }
 
 impl AdcPressureCalibration {
-    pub fn weight(&self, value: impl Into<f64>) -> Pressure {
+    pub fn pressure(&self, value: impl Into<f64>) -> Pressure {
         let res = value.into() * self.m + self.c;
         Pressure::new::<hectopascal>(res)
     }

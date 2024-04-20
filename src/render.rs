@@ -4,7 +4,7 @@ use egui::epaint::Shadow;
 use egui::{vec2, Align2, Color32, FontId, Frame, Id, ProgressBar, RichText, Sense, Stroke, Ui};
 use emath::{pos2, Pos2, Vec2};
 use palette::{Gradient, LinSrgb};
-use uom::si::f64::Mass;
+use uom::si::f64::{Mass, Pressure};
 
 use crate::connection::Connection;
 use crate::ebyte::modem_baud_rate;
@@ -331,7 +331,7 @@ fn render_launch_control(
 fn render_uptime(ui: &mut Ui, uptime: Duration) {
     let secs = uptime.as_secs_f64();
     ui.label(
-        RichText::new(format!("{}", secs))
+        RichText::new(format!("{:.2}", secs))
             .color(text_color(false))
             .heading(),
     );
@@ -339,9 +339,20 @@ fn render_uptime(ui: &mut Ui, uptime: Duration) {
 
 fn render_thrust(ui: &mut Ui, thrust: Mass) {
     ui.label(
-        RichText::new(format!("{:?}", thrust))
+        RichText::new(format!("{:.3}kg", thrust.get::<uom::si::mass::kilogram>()))
             .color(text_color(false))
             .heading(),
+    );
+}
+
+fn render_pressure(ui: &mut Ui, pressure: Pressure) {
+    ui.label(
+        RichText::new(format!(
+            "{:.6}hP",
+            pressure.get::<uom::si::pressure::hectopascal>()
+        ))
+        .color(text_color(false))
+        .heading(),
     );
 }
 
@@ -391,6 +402,20 @@ fn render_observables(
                 });
             if let Some(obg1) = obg1 {
                 render_thrust(ui, obg1.thrust);
+            }
+        });
+        ui.horizontal(|ui| {
+            egui::SidePanel::left("pressure")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(clear_frame())
+                .resizable(false)
+                .exact_width(ui.available_width() / 5.0)
+                .show_inside(ui, |ui| {
+                    ui.label(RichText::new("Pressure").color(text_color(false)).heading());
+                });
+            if let Some(obg1) = obg1 {
+                render_pressure(ui, obg1.pressure);
             }
         });
         ui.horizontal(|ui| {
