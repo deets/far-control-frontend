@@ -1,6 +1,7 @@
 use std::time::Duration;
 use uom::si::f64::*;
 use uom::si::mass::gram;
+use uom::si::pressure::hectopascal;
 
 // Raw wire-values
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -17,18 +18,24 @@ struct AdcWeightCalibration {
     c: f64,
 }
 
+struct AdcPressureCalibration {
+    m: f64,
+    c: f64,
+}
+
 pub mod rqa {
     use std::time::Duration;
 
-    use uom::si::f64::Mass;
+    use uom::si::f64::{Mass, Pressure};
 
-    use super::{AdcWeightCalibration, Ads1256Reading, ClkFreq, Timestamp};
+    use super::{AdcPressureCalibration, AdcWeightCalibration, Ads1256Reading, ClkFreq, Timestamp};
 
     #[derive(Copy, Clone, PartialEq, Debug)]
     pub struct RawObservablesGroup1 {
         pub clkfreq: ClkFreq,
         pub uptime: Timestamp,
         pub thrust: Ads1256Reading,
+        pub pressure: Ads1256Reading,
     }
 
     #[derive(Clone, PartialEq, Debug)]
@@ -51,6 +58,7 @@ pub mod rqa {
         pub clkfreq: ClkFreq,
         pub uptime: Duration,
         pub thrust: Mass,
+        pub pressure: Pressure,
     }
 
     #[derive(Clone, PartialEq, Debug)]
@@ -79,15 +87,18 @@ pub mod rqa {
 
     pub struct SystemDefinition {
         thrust_calibration: AdcWeightCalibration,
+        pressure_calibration: AdcPressureCalibration,
     }
 
     impl Default for SystemDefinition {
         fn default() -> Self {
             let (m, c) = (127539.14190327494, -6423.647555776099);
-            let calibration = AdcWeightCalibration { m, c };
+            let thrust_calibration = AdcWeightCalibration { m, c };
+            let pressure_calibration = AdcPressureCalibration { m: 1.0, c: 0.0 };
 
             Self {
-                thrust_calibration: calibration,
+                thrust_calibration,
+                pressure_calibration,
             }
         }
     }
@@ -96,10 +107,12 @@ pub mod rqa {
         pub fn transform_og1(&self, raw: &RawObservablesGroup1) -> ObservablesGroup1 {
             let uptime = raw.uptime.duration(&raw.clkfreq);
             let thrust = self.thrust_calibration.weight(raw.thrust.clone());
+            let pressure = self.pressure_calibration.weight(raw.pressure.clone());
             ObservablesGroup1 {
                 clkfreq: raw.clkfreq,
                 uptime,
                 thrust,
+                pressure,
             }
         }
 
@@ -159,6 +172,13 @@ impl AdcWeightCalibration {
     pub fn weight(&self, value: impl Into<f64>) -> Mass {
         let res = value.into() * self.m + self.c;
         Mass::new::<gram>(res)
+    }
+}
+
+impl AdcPressureCalibration {
+    pub fn weight(&self, value: impl Into<f64>) -> Pressure {
+        let res = value.into() * self.m + self.c;
+        Pressure::new::<hectopascal>(res)
     }
 }
 

@@ -485,7 +485,7 @@ fn hex_u64_parser(s: &[u8]) -> IResult<&[u8], u64> {
 
 pub fn rqa_obg1_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObservablesGroup1)> {
     // RQAOBG,123,LNC,1,0BEBC200,00000000AA894CC8,000669E2
-    let (rest, (source, _, command_id, _, recipient, _, clkfreq, _, timestamp, _, adc0)) =
+    let (rest, (source, _, command_id, _, recipient, _, clkfreq, _, timestamp, _, adc0, _, adc1)) =
         tuple((
             node_parser,
             tag(b"OBG,"),
@@ -496,6 +496,8 @@ pub fn rqa_obg1_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObserv
             hex_u32_parser,
             tag(","),
             hex_u64_parser,
+            tag(","),
+            hex_i32_parser,
             tag(","),
             hex_i32_parser,
         ))(s)?;
@@ -509,6 +511,7 @@ pub fn rqa_obg1_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObserv
                 clkfreq: ClkFreq(clkfreq),
                 uptime: Timestamp(timestamp),
                 thrust: Ads1256Reading(adc0),
+                pressure: Ads1256Reading(adc1),
             },
         ),
     ))
@@ -927,7 +930,7 @@ mod tests {
     #[test]
     fn test_obg1_parser() {
         assert_matches!(
-            rqa_obg1_parser(b"RQAOBG,123,LNC,1,0BEBC200,00000000AA894CC8,FFFFFFFF"),
+            rqa_obg1_parser(b"RQAOBG,123,LNC,1,0BEBC200,00000000AA894CC8,FFFFFFFF,00000000"),
             Ok((
                 b"",
                 (
@@ -938,6 +941,7 @@ mod tests {
                         clkfreq: ClkFreq(0x0BEBC200),
                         uptime: Timestamp(0x00000000AA894CC8),
                         thrust: Ads1256Reading(-1),
+                        pressure: Ads1256Reading(0),
                     }
                 )
             ))

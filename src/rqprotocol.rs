@@ -622,7 +622,9 @@ mod tests {
             b"$RQAACK,123,LNC,1*67\r\n".as_slice()
         );
         assert_matches!(
-            t.process_response(b"$RQAOBG,123,LNC,1,0BEBC200,00000000AA894CC8,000669E2*3F\r\n"),
+            t.process_response(
+                b"$RQAOBG,123,LNC,1,0BEBC200,00000000AA894CC8,000669E2,00000001*12\r\n"
+            ),
             Ok(Response::ObservableGroup(..)),
         );
         assert_eq!(t.state(), TransactionState::Alive);
