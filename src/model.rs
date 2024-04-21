@@ -136,7 +136,7 @@ where
     start: Instant,
     now: Instant,
     port: String,
-    pub obg1: Option<ObservablesGroup1>,
+    pub obg1: Vec<ObservablesGroup1>,
     pub obg2: Option<ObservablesGroup2>,
     pub established_connection_at: Option<Instant>,
     pub adc_gain: AdcGain,
@@ -942,7 +942,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             now,
             module,
             port: port.into(),
-            obg1: None,
+            obg1: vec![],
             obg2: None,
             established_connection_at: None,
             adc_gain: gain.clone(),
@@ -999,6 +999,8 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
         }
         if timeout {
             self.module.drain();
+            self.obg1.clear();
+            self.obg2 = None;
         } else if reset {
             self.reset();
         } else if error {
@@ -1055,7 +1057,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
         let sys_def = SystemDefinition::default();
         match raw {
             RawObservablesGroup::OG1(obg1) => {
-                self.obg1 = Some(sys_def.transform_og1(obg1));
+                self.obg1.push(sys_def.transform_og1(obg1));
             }
             RawObservablesGroup::OG2(obg2) => {
                 self.obg2 = Some(sys_def.transform_og2(obg2));
@@ -1174,6 +1176,14 @@ mod tests {
         }
 
         fn open(&mut self, _port: &str) {
+            todo!()
+        }
+
+        fn reset(&mut self) {
+            todo!()
+        }
+
+        fn resume(&mut self) {
             todo!()
         }
     }

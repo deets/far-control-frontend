@@ -1,6 +1,8 @@
-use std::time::Duration;
+use std::f64::consts::TAU;
+use std::time::{Duration, Instant};
 
 use egui::epaint::Shadow;
+use egui::plot::{Legend, Line, Plot, PlotPoints};
 use egui::{vec2, Align2, Color32, FontId, Frame, Id, ProgressBar, RichText, Sense, Stroke, Ui};
 use emath::{pos2, Pos2, Vec2};
 use palette::{Gradient, LinSrgb};
@@ -369,7 +371,7 @@ fn render_recording_state(ui: &mut Ui, recording_state: &RecordingState) {
 
 fn render_observables(
     ui: &mut Ui,
-    obg1: &Option<ObservablesGroup1>,
+    obg1: &Vec<ObservablesGroup1>,
     obg2: &Option<ObservablesGroup2>,
 ) {
     ui.vertical(|ui| {
@@ -387,7 +389,7 @@ fn render_observables(
                             .heading(),
                     );
                 });
-            if let Some(obg1) = obg1 {
+            if let Some(obg1) = obg1.last() {
                 render_uptime(ui, obg1.uptime);
             }
         });
@@ -401,7 +403,7 @@ fn render_observables(
                 .show_inside(ui, |ui| {
                     ui.label(RichText::new("Thrust").color(text_color(false)).heading());
                 });
-            if let Some(obg1) = obg1 {
+            if let Some(obg1) = obg1.last() {
                 render_thrust(ui, obg1.thrust);
             }
         });
@@ -415,7 +417,7 @@ fn render_observables(
                 .show_inside(ui, |ui| {
                     ui.label(RichText::new("Pressure").color(text_color(false)).heading());
                 });
-            if let Some(obg1) = obg1 {
+            if let Some(obg1) = obg1.last() {
                 render_pressure(ui, obg1.pressure);
             }
         });
@@ -483,6 +485,70 @@ fn render_observables(
                 .color(Color32::WHITE),
             );
         });
+        egui::SidePanel::left("thrust_plot")
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(clear_frame())
+            .resizable(false)
+            .exact_width(ui.available_width() / 2.0)
+            .show_inside(ui, |ui| {
+                let plot = Plot::new("thrust_plot").legend(Legend::default());
+                let mut plot_points = PlotPoints::default();
+                if obg1.len() >= 2 {
+                    let start = obg1.first().unwrap().uptime;
+                    let points: Vec<[f64; 2]> = obg1
+                        .iter()
+                        .map(|item| {
+                            [
+                                (item.uptime - start).as_secs_f64(),
+                                item.thrust.get::<uom::si::mass::kilogram>(),
+                            ]
+                        })
+                        .collect();
+                    plot_points = points.into();
+                }
+                plot.show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(plot_points)
+                            .color(Color32::from_rgb(100, 150, 250))
+                            .style(egui::plot::LineStyle::Solid)
+                            .name("Thrust"),
+                    );
+                })
+                .response
+            });
+        egui::SidePanel::left("pressure_plot")
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(clear_frame())
+            .resizable(false)
+            .exact_width(ui.available_width())
+            .show_inside(ui, |ui| {
+                let plot = Plot::new("pressure_plot").legend(Legend::default());
+                let mut plot_points = PlotPoints::default();
+                if obg1.len() >= 2 {
+                    let start = obg1.first().unwrap().uptime;
+                    let points: Vec<[f64; 2]> = obg1
+                        .iter()
+                        .map(|item| {
+                            [
+                                (item.uptime - start).as_secs_f64(),
+                                item.pressure.get::<uom::si::pressure::hectopascal>(),
+                            ]
+                        })
+                        .collect();
+                    plot_points = points.into();
+                }
+                plot.show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(plot_points)
+                            .color(Color32::from_rgb(100, 150, 250))
+                            .style(egui::plot::LineStyle::Solid)
+                            .name("Pressure"),
+                    );
+                })
+                .response
+            });
     });
 }
 
