@@ -39,6 +39,8 @@ enum Commands {
     Send(Vec<u8>),
     Drain,
     Quit,
+    Reset,
+    Resume,
 }
 
 struct E32Worker<Id> {
@@ -116,6 +118,14 @@ impl Connection for E32Connection {
             .send(Commands::Open(port.into()))
             .unwrap();
     }
+
+    fn reset(&mut self) {
+        self.command_sender.send(Commands::Reset).unwrap();
+    }
+
+    fn resume(&mut self) {
+        self.command_sender.send(Commands::Resume).unwrap();
+    }
 }
 
 impl Drop for E32Connection {
@@ -130,12 +140,15 @@ where
 {
     fn work(&mut self) {
         let mut module = None;
+        let mut fetch_observables = false;
         loop {
             match self
                 .command_receiver
                 .recv_timeout(Duration::from_millis(100))
             {
                 Ok(m) => match m {
+                    Commands::Reset => fetch_observables = false,
+                    Commands::Resume => fetch_observables = true,
                     Commands::Quit => {
                         break;
                     }
@@ -177,8 +190,10 @@ where
                     }
                 },
                 Err(RecvTimeoutError::Timeout) => {
-                    if let Some(module) = &mut module {
-                        self.fetch_observables(module);
+                    if fetch_observables {
+                        if let Some(module) = &mut module {
+                            self.fetch_observables(module);
+                        }
                     }
                 }
                 Err(_) => {

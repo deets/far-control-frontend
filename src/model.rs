@@ -1012,9 +1012,11 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
                             debug!("process_response: {:?}", response);
                             self.process_response(response);
                         }
+                        self.module.resume();
                     }
                     Err(err) => {
                         error!("Feeding consort error: {:?}", err);
+                        self.module.reset();
                         self.module.drain();
                         break;
                     }
@@ -1029,6 +1031,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
         self.mode = self.mode.reset_mode();
         self.established_connection_at = None;
         self.consort.reset();
+        self.module.reset();
         match self
             .consort
             .send_command(Command::Reset(self.adc_gain.clone()), &mut self.module)
