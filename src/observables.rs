@@ -1,3 +1,4 @@
+use clap::ArgEnum;
 use std::time::Duration;
 use uom::si::f64::*;
 use uom::si::mass::gram;
@@ -21,6 +22,18 @@ struct AdcWeightCalibration {
 struct AdcPressureCalibration {
     m: f64,
     c: f64,
+}
+
+#[derive(Clone, Debug, ArgEnum, PartialEq)]
+#[clap(rename_all = "kebab_case")]
+pub enum AdcGain {
+    Gain1,
+    Gain2,
+    Gain4,
+    Gain8,
+    Gain16,
+    Gain32,
+    Gain64,
 }
 
 pub mod rqa {
@@ -185,6 +198,19 @@ impl AdcPressureCalibration {
     }
 }
 
+impl Into<u8> for AdcGain {
+    fn into(self) -> u8 {
+        match self {
+            AdcGain::Gain1 => 1,
+            AdcGain::Gain2 => 2,
+            AdcGain::Gain4 => 4,
+            AdcGain::Gain8 => 8,
+            AdcGain::Gain16 => 16,
+            AdcGain::Gain32 => 32,
+            AdcGain::Gain64 => 64,
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
 

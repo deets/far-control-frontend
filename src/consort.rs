@@ -196,6 +196,8 @@ mod tests {
         rc::Rc,
     };
 
+    use crate::observables::AdcGain;
+
     use super::*;
 
     struct MockPort {
@@ -257,14 +259,14 @@ mod tests {
         );
         let mut mock_port = MockPort::default();
         consort
-            .send_command(Command::Reset, &mut mock_port)
+            .send_command(Command::Reset(AdcGain::Gain1), &mut mock_port)
             .unwrap();
         assert_eq!(
             mock_port.sent_messages.borrow_mut().pop(),
-            Some(b"$LNCCMD,001,RQA,RESET*01\r\n".as_slice().into())
+            Some(b"$LNCCMD,001,RQA,RESET,01*2C\r\n".as_slice().into())
         );
         let mut inputbuffer = ringbuffer::AllocRingBuffer::new(256);
-        for c in b"$RQAACK,001,LNC*7B\r\n" {
+        for c in b"$RQAACK,001,LNC,01*56\r\n" {
             inputbuffer.push(*c);
         }
         assert_matches!(consort.feed(&mut inputbuffer), Ok(Some(_)));
@@ -282,11 +284,11 @@ mod tests {
         );
         let mut mock_port = MockPort::default();
         consort
-            .send_command(Command::Reset, &mut mock_port)
+            .send_command(Command::Reset(AdcGain::Gain2), &mut mock_port)
             .unwrap();
         assert_eq!(
             mock_port.sent_messages.borrow_mut().pop(),
-            Some(b"$LNCCMD,001,RQA,RESET*01\r\n".as_slice().into())
+            Some(b"$LNCCMD,001,RQA,RESET,02*2F\r\n".as_slice().into())
         );
         let mut inputbuffer = ringbuffer::AllocRingBuffer::new(256);
         for c in b"$RQAACK,001" {

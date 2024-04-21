@@ -14,8 +14,9 @@ use crate::{
     connection::{Answers, Connection},
     consort::{Consort, SimpleIdGenerator},
     input::InputEvent,
-    observables::rqa::{
-        ObservablesGroup1, ObservablesGroup2, RawObservablesGroup, SystemDefinition,
+    observables::{
+        rqa::{ObservablesGroup1, ObservablesGroup2, RawObservablesGroup, SystemDefinition},
+        AdcGain,
     },
     rqparser::MAX_BUFFER_SIZE,
     rqprotocol::{Command, Response},
@@ -138,6 +139,7 @@ where
     pub obg1: Option<ObservablesGroup1>,
     pub obg2: Option<ObservablesGroup2>,
     pub established_connection: Option<Instant>,
+    pub adc_gain: AdcGain,
 }
 
 pub trait StateProcessing {
@@ -931,7 +933,7 @@ impl LaunchControlState {
 }
 
 impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
-    pub fn new(consort: Consort<Id>, module: C, now: Instant, port: &str) -> Self {
+    pub fn new(consort: Consort<Id>, module: C, now: Instant, port: &str, gain: &AdcGain) -> Self {
         Self {
             mode: Default::default(),
             control: Default::default(),
@@ -943,6 +945,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             obg1: None,
             obg2: None,
             established_connection: None,
+            adc_gain: gain.clone(),
         }
     }
 
@@ -1026,7 +1029,10 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
         self.mode = self.mode.reset_mode();
         self.established_connection = None;
         self.consort.reset();
-        match self.consort.send_command(Command::Reset, &mut self.module) {
+        match self
+            .consort
+            .send_command(Command::Reset(self.adc_gain.clone()), &mut self.module)
+        {
             Ok(_) => {}
             Err(_) => {
                 self.mode = self.mode.failure_mode();
@@ -1197,7 +1203,7 @@ mod tests {
             now,
             SimpleIdGenerator::default(),
         );
-        let mut model = Model::new(consort, connection, now, "comport");
+        let mut model = Model::new(consort, connection, now, "comport", &AdcGain::Gain64);
         assert_matches!(model.mode(), Mode::LaunchControl(_));
         assert_eq!(model.control, ControlArea::Tabs);
         // Put us into reset

@@ -1,7 +1,7 @@
 use crate::{
     observables::{
         rqa::{RawObservablesGroup, RawObservablesGroup1, RawObservablesGroup2},
-        Ads1256Reading, ClkFreq, Timestamp,
+        AdcGain, Ads1256Reading, ClkFreq, Timestamp,
     },
     rqprotocol::{AckHeader, Acknowledgement, Command, Node, RqTimestamp, Transaction},
 };
@@ -354,11 +354,26 @@ fn command_prefix_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node)> {
     Ok((rest, (source, command_id, recipient)))
 }
 
+fn gain_parser(s: &[u8]) -> IResult<&[u8], AdcGain> {
+    let (rest, num) = hex_u8_parser(s)?;
+    let gain = match num {
+        1 => AdcGain::Gain1,
+        2 => AdcGain::Gain2,
+        4 => AdcGain::Gain4,
+        8 => AdcGain::Gain8,
+        16 => AdcGain::Gain16,
+        32 => AdcGain::Gain32,
+        64 => AdcGain::Gain64,
+        _ => unreachable!(),
+    };
+    Ok((rest, gain))
+}
+
 fn command_reset_parser(s: &[u8]) -> IResult<&[u8], Transaction> {
-    // LNCCMD,123,RQA,RESET
+    // LNCCMD,123,RQA,RESET,40
     let (rest, (source, command_id, recipient)) = command_prefix_parser(s)?;
-    let (rest, _) = tag(b"RESET")(rest)?;
-    let transaction = Transaction::new(source, recipient, command_id, Command::Reset);
+    let (rest, (_, _, gain)) = tuple((tag(b"RESET"), tag(","), gain_parser))(rest)?;
+    let transaction = Transaction::new(source, recipient, command_id, Command::Reset(gain));
     Ok((rest, transaction))
 }
 
@@ -830,14 +845,14 @@ mod tests {
     #[test]
     fn test_command_parsing() {
         assert_matches!(
-            command_parser(b"LNCCMD,123,RQA,RESET"),
+            command_parser(b"LNCCMD,123,RQA,RESET,40"),
             Ok((
                 b"",
                 Transaction {
                     id: 123,
                     source: Node::LaunchControl,
                     recipient: Node::RedQueen(b'A'),
-                    command: Command::Reset,
+                    command: Command::Reset(AdcGain::Gain64),
                     ..
                 }
             ))
@@ -934,6 +949,12 @@ mod tests {
 
     #[test]
     fn test_obg1_parser() {
+        assert_matches!(
+            rqa_obg1_parser(b"RQAOBG,006,LNC,1,0BEBC200,000000003440E810,00069B00,FFFFFA7B"),
+            Ok(_)
+        );
+        //b'OBG,003,LNC,1,0BEBC200,000000059681E328,00069BB7,FFFFFA79'
+
         assert_matches!(
             rqa_obg1_parser(b"RQAOBG,123,LNC,1,0BEBC200,00000000AA894CC8,FFFFFFFF,00000000"),
             Ok((

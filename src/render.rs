@@ -11,6 +11,7 @@ use crate::ebyte::modem_baud_rate;
 use crate::layout::colors::{color32, kind_color, kind_color32, Intensity, Kind};
 use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing};
 use crate::observables::rqa::{ObservablesGroup1, ObservablesGroup2, PyroStatus, RecordingState};
+use crate::observables::AdcGain;
 
 // fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
 //     let lt = rect.left_top();
@@ -547,6 +548,18 @@ fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
         };
         ui.label(model.mode().name());
         ui.label(format!("E32 baud rate: {:?}", modem_baud_rate()));
+        ui.label(format!(
+            "Gain: {:?}",
+            match model.adc_gain {
+                AdcGain::Gain1 => 1,
+                AdcGain::Gain2 => 2,
+                AdcGain::Gain4 => 4,
+                AdcGain::Gain8 => 8,
+                AdcGain::Gain16 => 16,
+                AdcGain::Gain32 => 32,
+                AdcGain::Gain64 => 64,
+            }
+        ));
         ui.label(format!(
             "Connected: {}",
             model.uptime().map_or("--:--".to_string(), |duration| {

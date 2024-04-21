@@ -1,7 +1,9 @@
 use std::{fmt::Display, ops::Range, time::Duration};
 
+use log::error;
+
 use crate::{
-    observables::rqa::RawObservablesGroup,
+    observables::{rqa::RawObservablesGroup, AdcGain},
     rqparser::{
         ack_parser, command_parser, nibble_to_hex, one_hex_return_value_parser,
         one_usize_return_value_parser, rqa_obg_parser, two_return_values_parser,
@@ -56,7 +58,7 @@ pub struct AckHeader {
 /// All commands known to the RQ protocol
 #[derive(Debug, PartialEq)]
 pub enum Command {
-    Reset,
+    Reset(AdcGain),
     LaunchSecretPartial(u8),
     UnlockPyros,
     LaunchSecretFull(u8, u8),
@@ -96,7 +98,7 @@ enum CommandProcessor {
 impl Command {
     fn verb(&self) -> &'static [u8] {
         match self {
-            Command::Reset => b"RESET",
+            Command::Reset(_) => b"RESET",
             Command::LaunchSecretPartial(_) => b"SECRET_A",
             Command::UnlockPyros => b"UNLOCK_PYROS",
             Command::LaunchSecretFull(_, _) => b"SECRET_AB",
@@ -108,7 +110,7 @@ impl Command {
 
     fn processor(&self) -> CommandProcessor {
         match self {
-            Command::Reset => CommandProcessor::ResetAck,
+            Command::Reset(_) => CommandProcessor::ResetAck,
             Command::LaunchSecretPartial(a) => CommandProcessor::LaunchSecretPartial(*a),
             Command::UnlockPyros => CommandProcessor::UnlockPyrosAck,
             Command::LaunchSecretFull(a, b) => CommandProcessor::LaunchSecretFull(*a, *b),
@@ -238,7 +240,8 @@ impl From<NMEAFormatError<'_>> for Error {
 }
 
 impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
-    fn from(_value: nom::Err<nom::error::Error<&[u8]>>) -> Self {
+    fn from(value: nom::Err<nom::error::Error<&[u8]>>) -> Self {
+        error!("nom error: {:?}", value.to_string());
         Error::ParseError
     }
 }
@@ -361,7 +364,7 @@ impl Marshal for Command {
         range: Range<usize>,
     ) -> Result<Range<usize>, Error> {
         match self {
-            Command::Reset => Ok(range),
+            Command::Reset(gain) => u8_parameter(buffer, range, (*gain).clone().into()),
             Command::LaunchSecretPartial(a) => u8_parameter(buffer, range, *a),
             Command::UnlockPyros => Ok(range),
             Command::LaunchSecretFull(a, b) => {
@@ -506,7 +509,10 @@ impl CommandProcessor {
                     Err(Error::ParseError)
                 }
             }
-            CommandProcessor::ResetAck => Ok((params, Response::ResetAck)),
+            CommandProcessor::ResetAck => {
+                let (rest, _) = one_hex_return_value_parser(params)?;
+                Ok((rest, Response::ResetAck))
+            }
             CommandProcessor::IgnitionAck => Ok((params, Response::IgnitionAck)),
             CommandProcessor::PingAck => Ok((params, Response::PingAck)),
             CommandProcessor::ObservableGroupAck(g) => {
@@ -566,17 +572,17 @@ mod tests {
 
     #[test]
     fn test_reset() {
-        let mut t = Transaction::from_sentence(b"LNCCMD,123,RQA,RESET").unwrap();
+        let mut t = Transaction::from_sentence(b"LNCCMD,123,RQA,RESET,40").unwrap();
         assert_eq!(t.state(), TransactionState::Alive);
         let mut dest: [u8; MAX_BUFFER_SIZE] = [0; MAX_BUFFER_SIZE];
         let result = t.commandeer(&mut dest).unwrap();
-        assert_eq!(result, b"$LNCCMD,123,RQA,RESET*00\r\n".as_slice());
+        assert_eq!(result, b"$LNCCMD,123,RQA,RESET,40*28\r\n".as_slice());
         assert_eq!(
             t.acknowledge(&mut dest).unwrap(),
-            b"$RQAACK,123,LNC*7A\r\n".as_slice()
+            b"$RQAACK,123,LNC,40*52\r\n".as_slice()
         );
 
-        assert_matches!(t.process_response(b"$RQAACK,123,LNC*7A\r\n"), Ok(_),);
+        assert_matches!(t.process_response(b"$RQAACK,123,LNC,40*52\r\n"), Ok(_),);
         assert_eq!(t.state(), TransactionState::Dead);
     }
 

@@ -98,7 +98,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
             .or_else(|| serial_port_path())
             .expect("No serial port found");
         info!("Opening E32 {}", port_path);
-        let model = Model::new(consort, conn, start_time, &port_path);
+        let model = Model::new(consort, conn, start_time, &port_path, &args.gain);
 
         Self { model }
     }
