@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{ArgAction, Parser};
 
 use crate::observables::AdcGain;
 
@@ -9,4 +9,16 @@ pub struct ProgramArgs {
     pub port: Option<String>,
     #[clap(short, long, arg_enum)]
     pub gain: AdcGain,
+    #[clap(short, long, action = ArgAction::SetTrue)]
+    pub start_with_launch_control: bool,
+}
+
+impl Default for ProgramArgs {
+    fn default() -> Self {
+        Self {
+            port: Default::default(),
+            gain: AdcGain::Gain64,
+            start_with_launch_control: false,
+        }
+    }
 }

@@ -486,6 +486,18 @@ impl StateProcessing for ObservablesState {
     }
 }
 
+impl Default for LaunchControlState {
+    fn default() -> Self {
+        Self::Start
+    }
+}
+
+impl Default for ObservablesState {
+    fn default() -> Self {
+        Self::Start
+    }
+}
+
 impl StateProcessing for Mode {
     type State = Mode;
 
@@ -570,12 +582,6 @@ impl StateProcessing for Mode {
             Mode::Observables(state) => state.reset_ongoing(),
             Mode::LaunchControl(state) => state.reset_ongoing(),
         }
-    }
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Self::LaunchControl(LaunchControlState::Start)
     }
 }
 
@@ -933,9 +939,20 @@ impl LaunchControlState {
 }
 
 impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
-    pub fn new(consort: Consort<Id>, module: C, now: Instant, port: &str, gain: &AdcGain) -> Self {
+    pub fn new(
+        consort: Consort<Id>,
+        module: C,
+        now: Instant,
+        port: &str,
+        gain: &AdcGain,
+        start_with_launch_control: bool,
+    ) -> Self {
         Self {
-            mode: Default::default(),
+            mode: if start_with_launch_control {
+                Mode::LaunchControl(LaunchControlState::default())
+            } else {
+                Mode::Observables(ObservablesState::default())
+            },
             control: Default::default(),
             consort,
             start: now,
