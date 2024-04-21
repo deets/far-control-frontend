@@ -340,7 +340,7 @@ fn render_uptime(ui: &mut Ui, uptime: Duration) {
 
 fn render_thrust(ui: &mut Ui, thrust: Mass) {
     ui.label(
-        RichText::new(format!("{:.3}kg", thrust.get::<uom::si::mass::kilogram>()))
+        RichText::new(format!("{:.8}kg", thrust.get::<uom::si::mass::kilogram>()))
             .color(text_color(false))
             .heading(),
     );

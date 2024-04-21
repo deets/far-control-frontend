@@ -107,7 +107,7 @@ pub mod rqa {
 
     impl Default for SystemDefinition {
         fn default() -> Self {
-            let (m, c) = (127539.14190327494, -6423.647555776099);
+            let (m, c) = (1.0, 0.0); //(127539.14190327494, -6423.647555776099);
             let thrust_calibration = AdcWeightCalibration { m, c };
             let pressure_calibration = AdcPressureCalibration { m: 1.0, c: 0.0 };
 
