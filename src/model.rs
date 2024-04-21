@@ -138,7 +138,7 @@ where
     port: String,
     pub obg1: Option<ObservablesGroup1>,
     pub obg2: Option<ObservablesGroup2>,
-    pub established_connection: Option<Instant>,
+    pub established_connection_at: Option<Instant>,
     pub adc_gain: AdcGain,
 }
 
@@ -944,7 +944,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             port: port.into(),
             obg1: None,
             obg2: None,
-            established_connection: None,
+            established_connection_at: None,
             adc_gain: gain.clone(),
         }
     }
@@ -1027,7 +1027,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
 
     fn reset(&mut self) {
         self.mode = self.mode.reset_mode();
-        self.established_connection = None;
+        self.established_connection_at = None;
         self.consort.reset();
         match self
             .consort
@@ -1111,22 +1111,22 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
                 self.reset();
             }
         }
-        match self.established_connection {
+        match self.established_connection_at {
             Some(_) => {
                 if !self.connected() {
-                    self.established_connection = None
+                    self.established_connection_at = None
                 }
             }
             None => {
                 if self.connected() {
-                    self.established_connection = Some(Instant::now());
+                    self.established_connection_at = Some(Instant::now());
                 }
             }
         }
     }
 
     pub fn uptime(&self) -> Option<Duration> {
-        self.established_connection
+        self.established_connection_at
             .and_then(|timepoint| Some(Instant::now() - timepoint))
     }
 
