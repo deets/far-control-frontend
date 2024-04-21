@@ -45,6 +45,7 @@ pub mod rqa {
         pub anomalies: u32,
         pub vbb_voltage: u16,
         pub pyro_status: u8,
+        pub records: u32,
     }
 
     #[derive(Clone, PartialEq, Debug)]
@@ -80,6 +81,7 @@ pub mod rqa {
     pub struct ObservablesGroup2 {
         pub recording_state: RecordingState,
         pub anomalies: u32,
+        pub records: u32,
         pub vbb_voltage: f32,
         pub pyro12_status: PyroStatus,
         pub pyro34_status: PyroStatus,
@@ -145,6 +147,7 @@ pub mod rqa {
                     _ => unreachable!(),
                 },
                 anomalies,
+                records: raw.records,
                 vbb_voltage,
                 pyro12_status: pyro_status_from_bitfield(raw.pyro_status & 0x03),
                 pyro34_status: pyro_status_from_bitfield(raw.pyro_status >> 4 & 0x03),

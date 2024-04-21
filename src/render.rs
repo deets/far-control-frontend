@@ -437,6 +437,29 @@ fn render_observables(
             }
         });
         ui.horizontal(|ui| {
+            egui::SidePanel::left("records")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(clear_frame())
+                .resizable(false)
+                .exact_width(ui.available_width() / 5.0)
+                .show_inside(ui, |ui| {
+                    ui.label(
+                        RichText::new("Records written")
+                            .color(text_color(false))
+                            .heading(),
+                    );
+                });
+            ui.label(
+                RichText::new(
+                    obg2.clone()
+                        .map_or("--".to_string(), |obg2| format!("{}", obg2.records)),
+                )
+                .heading()
+                .color(Color32::WHITE),
+            );
+        });
+        ui.horizontal(|ui| {
             egui::SidePanel::left("anomalies")
                 .resizable(false)
                 .show_separator_line(false)
@@ -450,58 +473,14 @@ fn render_observables(
                             .heading(),
                     );
                 });
-            if let Some(obg2) = obg2 {
-                ui.label(
-                    RichText::new(format!("{}", obg2.anomalies))
-                        .heading()
-                        .color(Color32::WHITE),
-                );
-            }
-        });
-        ui.horizontal(|ui| {
-            egui::SidePanel::left("vbb_voltage")
-                .resizable(false)
-                .show_separator_line(false)
-                .frame(clear_frame())
-                .resizable(false)
-                .exact_width(ui.available_width() / 5.0)
-                .show_inside(ui, |ui| {
-                    ui.label(
-                        RichText::new("VBB Voltage")
-                            .color(text_color(false))
-                            .heading(),
-                    );
-                });
-            if let Some(obg2) = obg2 {
-                ui.label(
-                    RichText::new(format!("{}", obg2.vbb_voltage))
-                        .heading()
-                        .color(Color32::WHITE),
-                );
-            }
-        });
-        ui.horizontal(|ui| {
-            egui::SidePanel::left("pyro_status")
-                .resizable(false)
-                .show_separator_line(false)
-                .frame(clear_frame())
-                .resizable(false)
-                .exact_width(ui.available_width() / 5.0)
-                .show_inside(ui, |ui| {
-                    ui.label(RichText::new("Pyros").color(text_color(false)).heading());
-                });
-            if let Some(obg2) = obg2 {
-                ui.label(
-                    RichText::new(format!("1/2: {:?}", obg2.pyro12_status))
-                        .heading()
-                        .color(Color32::WHITE),
-                );
-                ui.label(
-                    RichText::new(format!("3/4: {:?}", obg2.pyro34_status))
-                        .heading()
-                        .color(Color32::WHITE),
-                );
-            }
+            ui.label(
+                RichText::new(
+                    obg2.clone()
+                        .map_or("--".to_string(), |obg2| format!("{}", obg2.anomalies)),
+                )
+                .heading()
+                .color(Color32::WHITE),
+            );
         });
     });
 }

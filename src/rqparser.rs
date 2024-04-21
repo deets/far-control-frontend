@@ -549,7 +549,7 @@ fn string_parser(s: &[u8]) -> IResult<&[u8], Vec<u8>> {
 }
 
 pub fn rqa_obg2_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObservablesGroup2)> {
-    // RQAOBG,123,LNC,2,R,FOOBAR.TXT
+    // RQAOBG,123,LNC,2,R,FOOBAR.TXT,000000FF,12345678,ABCD,22
     let (
         rest,
         (
@@ -565,6 +565,8 @@ pub fn rqa_obg2_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObserv
             _,
             anomalies,
             _,
+            records,
+            _,
             vbb_voltage,
             _,
             pyro_status,
@@ -579,6 +581,8 @@ pub fn rqa_obg2_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObserv
         alt((tag("E"), tag("P"), tag("U"), tag("R"))),
         tag(","),
         string_parser,
+        tag(","),
+        hex_u32_parser,
         tag(","),
         hex_u32_parser,
         tag(","),
@@ -598,6 +602,7 @@ pub fn rqa_obg2_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObserv
                 anomalies,
                 vbb_voltage,
                 pyro_status,
+                records,
             },
         ),
     ))
@@ -964,18 +969,19 @@ mod tests {
     #[test]
     fn test_obg2_parser() {
         assert_matches!(
-            rqa_obg2_parser(b"RQAOBG,123,LNC,2,R,TEST.DAT,000000FF,007E,03"),
+            rqa_obg2_parser(b"RQAOBG,010,LNC,2,R,RQADS002.TXT,00000064,00000579,007D,00"),
             Ok((
                 b"",
                 (
                     Node::RedQueen(b'A'),
-                    123,
+                    10,
                     Node::LaunchControl,
                     RawObservablesGroup2 {
                         state: b'R',
-                        anomalies: 255,
-                        vbb_voltage: 0x007E,
-                        pyro_status: 0x03,
+                        anomalies: 100,
+                        vbb_voltage: 125,
+                        pyro_status: 0x00,
+                        records: 1401,
                         ..
                     }
                 )
