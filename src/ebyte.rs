@@ -168,14 +168,26 @@ where
                     Commands::Send(data) => match &mut module {
                         Some(module) => {
                             debug!("sending {}", std::str::from_utf8(&data).unwrap());
-                            module.write_buffer(&data).expect("can't send data");
-                            if Self::receive_sentence_or_timeout(module, |sentence| {
-                                debug!("sending data into main thread");
-                                self.response_sender
-                                    .send(Answers::Received(sentence.clone()))
-                                    .expect("can't ack data");
-                            }) {
-                                self.send_timeout();
+                            match module.write_buffer(&data) {
+                                Ok(_) => {
+                                    if Self::receive_sentence_or_timeout(
+                                        module,
+                                        |sentence| {
+                                            self.response_sender
+                                                .send(Answers::Received(sentence.clone()))
+                                                .expect("can't ack data");
+                                        },
+                                        &mut self.recorder,
+                                    ) {
+                                        self.send_timeout();
+                                    }
+                                }
+                                Err(err) => {
+                                    error!("Sending data to module failed {:?}, sending Answers::ConnectionError", err);
+                                    self.response_sender
+                                        .send(Answers::ConnectionError)
+                                        .expect("cc works!");
+                                }
                             }
                         }
                         None => {
