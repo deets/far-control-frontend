@@ -1,5 +1,4 @@
-use std::f64::consts::TAU;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use egui::epaint::Shadow;
 use egui::plot::{Legend, Line, Plot, PlotPoints};
@@ -301,6 +300,22 @@ fn render_launch_control_powerstate(ui: &mut Ui, obg2: &Option<ObservablesGroup2
     });
 }
 
+fn render_rocket_screen(ui: &mut Ui) {
+    let giant_font = FontId::new(250.0, egui::FontFamily::Monospace);
+    let color = Color32::WHITE;
+    let painter = ui.painter();
+    let galley = painter.layout_no_wrap("🚀".into(), giant_font.clone(), color);
+    let rect = galley.size();
+    let (response, painter) = ui.allocate_painter(rect.into(), Sense::hover());
+    painter.text(
+        response.rect.center(),
+        Align2::CENTER_CENTER,
+        "🚀",
+        giant_font,
+        color,
+    );
+}
+
 fn render_launch_control(
     ui: &mut Ui,
     state: &LaunchControlState,
@@ -314,7 +329,13 @@ fn render_launch_control(
             .show_separator_line(false)
             .frame(clear_frame())
             .exact_width(left_width)
-            .show_inside(ui, |ui| render_launch_control_interactions(ui, state));
+            .show_inside(ui, |ui| match state {
+                LaunchControlState::WaitForPyroTimeout(_) => render_rocket_screen(ui),
+                LaunchControlState::SwitchToObservables => render_rocket_screen(ui),
+                _ => {
+                    render_launch_control_interactions(ui, state);
+                }
+            });
         egui::SidePanel::right("powerstate")
             .resizable(false)
             .show_separator_line(false)
@@ -633,6 +654,14 @@ fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
                 format!("{}:{:02}", seconds / 60, seconds % 60)
             })
         ));
+        ui.label(
+            model
+                .recorder_path
+                .clone()
+                .map_or("Not recording to file".to_string(), |path| {
+                    format!("Recording: {:?}", path)
+                }),
+        );
     });
 }
 

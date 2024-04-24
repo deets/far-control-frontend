@@ -102,6 +102,8 @@ pub enum LaunchControlState {
         lo_b: u8,
     },
     Fire,
+    WaitForPyroTimeout(Instant),
+    SwitchToObservables,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -215,7 +217,7 @@ impl StateProcessing for LaunchControlState {
                 _ => Self::State::Start,
             },
             Self::State::Fire => match response {
-                Response::IgnitionAck => Self::State::Idle,
+                Response::IgnitionAck => Self::State::WaitForPyroTimeout(Instant::now()),
                 _ => Self::State::Start,
             },
             _ => *self,
@@ -238,7 +240,9 @@ impl StateProcessing for LaunchControlState {
             Self::State::TransmitKeyAB { .. } => "Transmitting Key AB",
             Self::State::PrepareIgnition { .. } => "Prepare Ignition",
             Self::State::WaitForFire { .. } => "Wait for Fire",
-            Self::State::Fire { .. } => "Fire!",
+            Self::State::Fire => "Fire!",
+            Self::State::WaitForPyroTimeout { .. } => "Pyros ignited",
+            Self::State::SwitchToObservables => "",
         }
     }
 
@@ -378,6 +382,13 @@ impl StateProcessing for LaunchControlState {
                 },
                 last_update: *last_update,
             },
+            LaunchControlState::WaitForPyroTimeout(timeout) => {
+                if timeout.elapsed() > Duration::from_secs(3) {
+                    LaunchControlState::SwitchToObservables
+                } else {
+                    *self
+                }
+            }
             _ => *self,
         }
     }
@@ -550,10 +561,14 @@ impl StateProcessing for Mode {
     }
 
     fn drive(&self) -> Self {
-        match self {
+        let mut mode = match self {
             Mode::LaunchControl(state) => Mode::LaunchControl(state.drive()),
             Mode::Observables(state) => Mode::Observables(state.drive()),
+        };
+        if let Mode::LaunchControl(LaunchControlState::SwitchToObservables) = mode {
+            mode = Mode::Observables(ObservablesState::Start)
         }
+        mode
     }
 
     fn connected(&self) -> bool {
@@ -630,6 +645,8 @@ impl LaunchControlState {
                 lo_b,
             } => (*hi_a, *lo_a, *hi_b, *lo_b),
             LaunchControlState::Fire => (0, 0, 0, 0),
+            LaunchControlState::WaitForPyroTimeout(_) => (0, 0, 0, 0),
+            LaunchControlState::SwitchToObservables => (0, 0, 0, 0),
         }
     }
 
