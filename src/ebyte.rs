@@ -22,6 +22,7 @@ use std::{
 
 use crate::{
     connection::{Answers, Connection},
+    recorder::Recorder,
     rqparser::{SentenceParser, MAX_BUFFER_SIZE},
     rqprotocol::{Command, Node, Response, Transaction},
 };
@@ -49,6 +50,7 @@ struct E32Worker<Id> {
     command_id_generator: Id,
     me: Node,
     target_red_queen: Node,
+    recorder: Recorder,
 }
 
 pub struct E32Connection {
@@ -63,6 +65,7 @@ impl E32Connection {
         command_id_generator: Id,
         me: Node,
         target_red_queen: Node,
+        recorder: Recorder,
     ) -> anyhow::Result<E32Connection> {
         let (command_sender, command_receiver) = unbounded::<Commands>();
         let (response_sender, response_receiver) = unbounded::<Answers>();
@@ -73,6 +76,7 @@ impl E32Connection {
                 command_id_generator,
                 me,
                 target_red_queen,
+                recorder,
             };
             worker.work();
         });
@@ -209,7 +213,7 @@ where
         warn!("Draining");
         let until = Instant::now() + Duration::from_secs(5);
         while Instant::now() < until {
-            let _ = block!(module.read());
+            let _ = block!(module.read()).map(|c| self.recorder.store(c));
         }
         warn!("Drained");
         self.response_sender.send(Answers::Drained).unwrap();
@@ -229,8 +233,9 @@ where
         let result = t.commandeer(&mut dest).unwrap();
         module.write_buffer(result).expect("can't send data");
         // First come the observables, so we relay them
-        if Self::receive_sentence_or_timeout(module, |sentence| {
-            match t.process_response(sentence) {
+        if Self::receive_sentence_or_timeout(
+            module,
+            |sentence| match t.process_response(sentence) {
                 Ok(response) => {
                     if let Response::ObservableGroup(observables) = response {
                         self.response_sender
@@ -242,15 +247,20 @@ where
                     self.response_sender.send(Answers::ConnectionError).unwrap();
                     return;
                 }
-            }
-        }) {
+            },
+            &mut self.recorder,
+        ) {
             debug!("timeout getting OBG{} data", obg);
             self.send_timeout();
         } else {
             // now the ack is supposed to happen
-            if Self::receive_sentence_or_timeout(module, |sentence| {
-                let _ = t.process_response(sentence);
-            }) {
+            if Self::receive_sentence_or_timeout(
+                module,
+                |sentence| {
+                    let _ = t.process_response(sentence);
+                },
+                &mut self.recorder,
+            ) {
                 debug!("timeout getting OBG{} ack", obg);
                 self.send_timeout();
             }
@@ -267,12 +277,14 @@ where
     fn receive_sentence_or_timeout(
         module: &mut E32Module,
         callback: impl FnOnce(&Vec<u8>),
+        recorder: &mut Recorder,
     ) -> bool {
         let mut count = 0;
         let mut sentence_parser = SentenceParser::new();
         loop {
             match block!(module.read()) {
                 Ok(b) => {
+                    recorder.store(b);
                     let mut sentence: Option<Vec<u8>> = None;
                     sentence_parser
                         .feed(&[b], |sentence_| sentence = Some(sentence_.to_vec()))

@@ -6,6 +6,7 @@ use ringbuffer::{AllocRingBuffer, RingBuffer};
 use std::time::Instant;
 
 use std::{
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -142,6 +143,7 @@ where
     pub obg2: Option<ObservablesGroup2>,
     pub established_connection_at: Option<Instant>,
     pub adc_gain: AdcGain,
+    pub recorder_path: Option<PathBuf>,
 }
 
 pub trait StateProcessing {
@@ -963,6 +965,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
         port: &str,
         gain: &AdcGain,
         start_with_launch_control: bool,
+        recorder_path: Option<PathBuf>,
     ) -> Self {
         Self {
             mode: if start_with_launch_control {
@@ -980,6 +983,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             obg2: None,
             established_connection_at: None,
             adc_gain: gain.clone(),
+            recorder_path,
         }
     }
 

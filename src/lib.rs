@@ -12,6 +12,7 @@ pub mod input;
 pub mod layout;
 pub mod model;
 pub mod observables;
+pub mod recorder;
 pub mod render;
 pub mod rqparser;
 pub mod rqprotocol;

@@ -11,6 +11,8 @@ pub struct ProgramArgs {
     pub gain: AdcGain,
     #[clap(short, long, action = ArgAction::SetTrue)]
     pub start_with_launch_control: bool,
+    #[clap(short, long, action = ArgAction::SetTrue)]
+    pub dont_record: bool,
 }
 
 impl Default for ProgramArgs {
@@ -19,6 +21,7 @@ impl Default for ProgramArgs {
             port: Default::default(),
             gain: AdcGain::Gain64,
             start_with_launch_control: false,
+            dont_record: false,
         }
     }
 }

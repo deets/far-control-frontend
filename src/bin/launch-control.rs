@@ -1,4 +1,6 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use std::path::PathBuf;
+// hide console window on Windows in release
 #[cfg(feature = "novaview")]
 use std::sync::Arc;
 
@@ -41,10 +43,6 @@ const DEVICE: &str = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-p
 const DEVICE: &str = "/dev/ttyAMA3";
 
 fn serial_port_path() -> Option<String> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() == 2 {
-        return args.get(1).cloned();
-    }
     if std::path::Path::new(DEVICE).exists() {
         return Some(DEVICE.to_string());
     }
@@ -59,6 +57,8 @@ fn serial_port_path() -> Option<String> {
 
 #[cfg(feature = "eframe")]
 fn main() -> Result<(), eframe::Error> {
+    use control_frontend::recorder::Recorder;
+
     simple_logger::init_with_env().unwrap();
 
     let id_generator = SharedIdGenerator::default();
@@ -67,13 +67,32 @@ fn main() -> Result<(), eframe::Error> {
         initial_window_size: Some(egui::vec2(SCREEN_WIDTH as f32, SCREEN_HEIGHT as f32)),
         ..Default::default()
     };
-    let conn =
-        E32Connection::new(id_generator.clone(), me.clone(), target_red_queen.clone()).unwrap();
+    let args = ProgramArgs::parse();
+    let recorder = if args.dont_record {
+        Recorder::new(None)
+    } else {
+        Recorder::new_with_default_file()
+    };
+    let recorder_path = recorder.path.clone();
+    let conn = E32Connection::new(
+        id_generator.clone(),
+        me.clone(),
+        target_red_queen.clone(),
+        recorder,
+    )
+    .unwrap();
 
     eframe::run_native(
         "Launch Control",
         options,
-        Box::new(|_cc| Box::new(LaunchControlApp::new(id_generator, conn))),
+        Box::new(|_cc| {
+            Box::new(LaunchControlApp::new(
+                id_generator,
+                conn,
+                args,
+                recorder_path,
+            ))
+        }),
     )
 }
 
@@ -86,8 +105,7 @@ where
 }
 
 impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
-    fn new(id_generator: Id, conn: C) -> Self {
-        let args = ProgramArgs::parse();
+    fn new(id_generator: Id, conn: C, args: ProgramArgs, recorder_path: Option<PathBuf>) -> Self {
         let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
         let start_time = Instant::now();
 
@@ -105,6 +123,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
             &port_path,
             &args.gain,
             args.start_with_launch_control,
+            recorder_path,
         );
 
         Self { model }
