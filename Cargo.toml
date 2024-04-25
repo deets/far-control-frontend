@@ -4,6 +4,8 @@ description = "Launch Control via E32 LoRa Module"
 version = "0.1.0"
 edition = "2021"
 default-run = "launch-control"
+homepage = "https://alternative-raumfahrt.de"
+license-file = "LICENSE"
 
 [features]
 default = ["e32"]
