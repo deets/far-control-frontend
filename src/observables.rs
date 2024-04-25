@@ -39,11 +39,7 @@ pub enum AdcGain {
 pub mod rqa {
     use std::time::Duration;
 
-    use uom::si::{
-        f64::{Force, Mass, Pressure},
-        force::kilonewton,
-        pressure::bar,
-    };
+    use uom::si::f64::{Force, Pressure};
 
     use super::{AdcForceCalibration, AdcPressureCalibration, Ads1256Reading, ClkFreq, Timestamp};
 
@@ -190,7 +186,7 @@ impl Timestamp {
 
 impl Into<f64> for Ads1256Reading {
     fn into(self) -> f64 {
-        self.0 as f64 / 0x800000 as f64
+        self.0 as f64
     }
 }
 
