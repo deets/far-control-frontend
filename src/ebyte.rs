@@ -383,16 +383,21 @@ fn create(port: &str, parameters: Parameters) -> anyhow::Result<E32Module> {
     config_settings.baud_rate = BaudRate::Baud9600;
 
     let mut port = ::serial::open(port)?;
+    debug!("Serial port openend");
     port.configure(&config_settings)?;
     port.set_timeout(ANSWER_TIMEOUT)?;
     let serial = Serial::new(Rc::new(RefCell::new(port)));
 
     let mut chip = Chip::new::<PathBuf>("/dev/gpiochip0".into())?;
+    debug!("GPIO opened");
     let aux = CtsAux::new(&mut chip)?;
-
+    debug!("GPIO aux allocated");
     let m0 = M0Dtr::new(&mut chip)?;
+    debug!("GPIO M0 allocated");
     let m1 = M1Rts::new(&mut chip)?;
+    debug!("GPIO M1 allocated");
     let delay = StandardDelay {};
+    debug!("GPIO lines allocated");
     //serial.configure(&comms_settings);
     let mut module = Ebyte::new(serial, aux, m0, m1, delay)?;
     configure(&mut module, &parameters)?;

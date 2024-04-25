@@ -17,6 +17,8 @@ use control_frontend::rqprotocol::Node;
 #[cfg(feature = "novaview")]
 use control_frontend::timestep::TimeStep;
 
+use control_frontend::recorder::Recorder;
+
 #[cfg(feature = "e32")]
 use control_frontend::ebyte::E32Connection;
 #[cfg(not(feature = "e32"))]
@@ -57,8 +59,6 @@ fn serial_port_path() -> Option<String> {
 
 #[cfg(feature = "eframe")]
 fn main() -> Result<(), eframe::Error> {
-    use control_frontend::recorder::Recorder;
-
     simple_logger::init_with_env().unwrap();
 
     let id_generator = SharedIdGenerator::default();
@@ -346,9 +346,16 @@ async fn run() -> anyhow::Result<()> {
     simple_logger::init_with_env().unwrap();
     let id_generator = SharedIdGenerator::default();
     let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
-    let conn =
-        E32Connection::new(id_generator.clone(), me.clone(), target_red_queen.clone()).unwrap();
-    let mut app = LaunchControlApp::new(id_generator, conn);
+    let args = ProgramArgs::parse();
+    let recorder = Recorder::new(None);
+    let conn = E32Connection::new(
+        id_generator.clone(),
+        me.clone(),
+        target_red_queen.clone(),
+        recorder,
+    )
+    .unwrap();
+    let mut app = LaunchControlApp::new(id_generator, conn, args, None);
 
     // Initialize sdl
     let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;

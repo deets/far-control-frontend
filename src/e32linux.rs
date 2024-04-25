@@ -110,7 +110,7 @@ impl DelayMs<u32> for StandardDelay {
 impl CtsAux {
     pub fn new(chip: &mut Chip) -> anyhow::Result<Self> {
         let aux = chip
-            .get_line(18)?
+            .get_line(16)?
             .request(LineRequestFlags::INPUT, 0, "e32linux")?;
         let pin = CdevPin::new(aux)?;
         Ok(Self { pin })
