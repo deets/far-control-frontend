@@ -12,6 +12,7 @@ use control_frontend::connection::Connection;
 use control_frontend::consort::Consort;
 use control_frontend::input::InputEvent;
 use control_frontend::model::{Model, SharedIdGenerator};
+use control_frontend::observables::AdcGain;
 use control_frontend::render::render;
 use control_frontend::rqprotocol::Node;
 #[cfg(feature = "novaview")]
@@ -31,7 +32,7 @@ use egui_sdl2_platform::sdl2;
 #[cfg(feature = "novaview")]
 use egui_sdl2_platform::sdl2::joystick::Joystick;
 
-use log::{error, info};
+use log::info;
 
 #[cfg(feature = "novaview")]
 use sdl2::event::{Event, WindowEvent};
@@ -121,7 +122,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
             conn,
             start_time,
             &port_path,
-            &args.gain,
+            &AdcGain::Gain32,
             args.start_with_launch_control,
             recorder_path,
         );
