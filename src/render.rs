@@ -5,7 +5,9 @@ use egui::plot::{Legend, Line, Plot, PlotPoints};
 use egui::{vec2, Align2, Color32, FontId, Frame, Id, ProgressBar, RichText, Sense, Stroke, Ui};
 use emath::{pos2, Pos2, Vec2};
 use palette::{Gradient, LinSrgb};
-use uom::si::f64::{Mass, Pressure};
+use uom::si::f64::{Force, Pressure};
+use uom::si::force::kilonewton;
+use uom::si::pressure::bar;
 
 use crate::connection::Connection;
 use crate::ebyte::modem_baud_rate;
@@ -361,22 +363,22 @@ fn render_uptime(ui: &mut Ui, uptime: Duration) {
     );
 }
 
-fn render_thrust(ui: &mut Ui, thrust: Mass) {
+fn render_thrust(ui: &mut Ui, thrust: Force) {
     ui.label(
-        RichText::new(format!("{:.8}kg", thrust.get::<uom::si::mass::kilogram>()))
-            .color(text_color(false))
-            .heading(),
+        RichText::new(format!(
+            "{:.8}kN",
+            thrust.get::<uom::si::force::kilonewton>()
+        ))
+        .color(text_color(false))
+        .heading(),
     );
 }
 
 fn render_pressure(ui: &mut Ui, pressure: Pressure) {
     ui.label(
-        RichText::new(format!(
-            "{:.6}hP",
-            pressure.get::<uom::si::pressure::hectopascal>()
-        ))
-        .color(text_color(false))
-        .heading(),
+        RichText::new(format!("{:.6}bar", pressure.get::<bar>()))
+            .color(text_color(false))
+            .heading(),
     );
 }
 
@@ -522,7 +524,7 @@ fn render_observables(
                         .map(|item| {
                             [
                                 (item.uptime - start).as_secs_f64(),
-                                item.thrust.get::<uom::si::mass::kilogram>(),
+                                item.thrust.get::<kilonewton>(),
                             ]
                         })
                         .collect();

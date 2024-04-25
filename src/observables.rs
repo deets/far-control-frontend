@@ -1,8 +1,8 @@
 use clap::ArgEnum;
 use std::time::Duration;
 use uom::si::f64::*;
-use uom::si::mass::gram;
-use uom::si::pressure::hectopascal;
+use uom::si::force::kilonewton;
+use uom::si::pressure::bar;
 
 // Raw wire-values
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -14,7 +14,7 @@ pub struct Timestamp(pub u64);
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Ads1256Reading(pub i32);
 
-struct AdcWeightCalibration {
+struct AdcForceCalibration {
     m: f64,
     c: f64,
 }
@@ -39,9 +39,13 @@ pub enum AdcGain {
 pub mod rqa {
     use std::time::Duration;
 
-    use uom::si::f64::{Mass, Pressure};
+    use uom::si::{
+        f64::{Force, Mass, Pressure},
+        force::kilonewton,
+        pressure::bar,
+    };
 
-    use super::{AdcPressureCalibration, AdcWeightCalibration, Ads1256Reading, ClkFreq, Timestamp};
+    use super::{AdcForceCalibration, AdcPressureCalibration, Ads1256Reading, ClkFreq, Timestamp};
 
     #[derive(Copy, Clone, PartialEq, Debug)]
     pub struct RawObservablesGroup1 {
@@ -71,7 +75,7 @@ pub mod rqa {
     pub struct ObservablesGroup1 {
         pub clkfreq: ClkFreq,
         pub uptime: Duration,
-        pub thrust: Mass,
+        pub thrust: Force,
         pub pressure: Pressure,
     }
 
@@ -101,15 +105,20 @@ pub mod rqa {
     }
 
     pub struct SystemDefinition {
-        thrust_calibration: AdcWeightCalibration,
+        thrust_calibration: AdcForceCalibration,
         pressure_calibration: AdcPressureCalibration,
     }
 
     impl Default for SystemDefinition {
         fn default() -> Self {
-            let (m, c) = (1.0, 0.0); //(127539.14190327494, -6423.647555776099);
-            let thrust_calibration = AdcWeightCalibration { m, c };
-            let pressure_calibration = AdcPressureCalibration { m: 1.0, c: 0.0 };
+            let thrust_calibration = AdcForceCalibration {
+                m: 4.451e-5,
+                c: -0.049,
+            };
+            let pressure_calibration = AdcPressureCalibration {
+                m: 4.213e-5,
+                c: -0.927,
+            };
 
             Self {
                 thrust_calibration,
@@ -121,7 +130,7 @@ pub mod rqa {
     impl SystemDefinition {
         pub fn transform_og1(&self, raw: &RawObservablesGroup1) -> ObservablesGroup1 {
             let uptime = raw.uptime.duration(&raw.clkfreq);
-            let thrust = self.thrust_calibration.weight(raw.thrust.clone());
+            let thrust = self.thrust_calibration.force(raw.thrust.clone());
             let pressure = self.pressure_calibration.pressure(raw.pressure.clone());
             ObservablesGroup1 {
                 clkfreq: raw.clkfreq,
@@ -184,17 +193,18 @@ impl Into<f64> for Ads1256Reading {
         self.0 as f64 / 0x800000 as f64
     }
 }
-impl AdcWeightCalibration {
-    pub fn weight(&self, value: impl Into<f64>) -> Mass {
+
+impl AdcForceCalibration {
+    pub fn force(&self, value: impl Into<f64>) -> Force {
         let res = value.into() * self.m + self.c;
-        Mass::new::<gram>(res)
+        Force::new::<kilonewton>(res)
     }
 }
 
 impl AdcPressureCalibration {
     pub fn pressure(&self, value: impl Into<f64>) -> Pressure {
         let res = value.into() * self.m + self.c;
-        Pressure::new::<hectopascal>(res)
+        Pressure::new::<bar>(res)
     }
 }
 
@@ -232,8 +242,8 @@ mod tests {
     fn test_weight_from_adc_reading() {
         let reading = Ads1256Reading(433110);
         let (m, c) = (127539.14190327494, -6423.647555776099);
-        let calibration = AdcWeightCalibration { m, c };
+        let calibration = AdcForceCalibration { m, c };
         let g160 = Mass::new::<gram>(161.29213263554357);
-        assert_eq!(calibration.weight(reading), g160);
+        assert_eq!(calibration.force(reading), g160);
     }
 }
