@@ -8,9 +8,9 @@ homepage = "https://alternative-raumfahrt.de"
 license-file = "LICENSE"
 
 [features]
-default = ["e32"]
+default = ["e32", "novaview"]
 e32 = ["dep:ebyte-e32", "dep:ebyte-e32-ftdi"]
-novaview = ["dep:egui_sdl2_platform", "dep:linux-embedded-hal"]
+novaview = ["dep:egui_sdl2_platform", "dep:linux-embedded-hal", "dep:embedded-nrf24l01"]
 eframe = ["dep:eframe"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -44,6 +44,7 @@ uom = "0.35.0"
 memoize = "0.4.2"
 serialport = "4.3.0"
 linux-embedded-hal = { version = "0.4", features = ["gpio_cdev"], optional=true }
+embedded-nrf24l01 = { version="0.2.0", optional=true }
 clap = { version = "3.2.25", features = ["derive"] }
 chrono = "0.4.38"
 
