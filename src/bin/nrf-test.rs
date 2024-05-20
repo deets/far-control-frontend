@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use anyhow::anyhow;
 use embedded_hal::blocking::spi::Transfer;
@@ -59,7 +60,6 @@ struct SpiWrapper(Spidev);
 
 impl Transfer<u8> for SpiWrapper {
     type Error = std::io::Error;
-
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
         let mut inbuffer = [0; 256];
         let mut t = spi_ioc_transfer::read_write(words, &mut inbuffer[0..words.len()]);
@@ -89,6 +89,9 @@ fn setup_nrf(ce_pin: CEPin, spi: SpiWrapper) -> core::result::Result<NRFStandby,
 
 fn read_nrf(nrf: NRFStandby) -> core::result::Result<(), SpiError> {
     let mut rx = nrf.rx().unwrap();
+    let start = Instant::now();
+    let mut count = 0;
+
     loop {
         loop {
             if let Some(_) = rx.can_read().unwrap() {
@@ -97,7 +100,13 @@ fn read_nrf(nrf: NRFStandby) -> core::result::Result<(), SpiError> {
         }
         let data = rx.read().unwrap();
         let raw: &[u8] = &data;
-        print!("{}", std::str::from_utf8(raw).unwrap());
+        count += raw.len() * 8;
+        let kbit_per_second = count as f64 / (Instant::now() - start).as_secs_f64();
+        print!(
+            "{}\nkbit: {:.3}\n",
+            std::str::from_utf8(raw).unwrap(),
+            kbit_per_second
+        );
     }
 }
 
