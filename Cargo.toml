@@ -45,10 +45,9 @@ memoize = "0.4.2"
 serialport = "4.3.0"
 linux-embedded-hal = { version = "0.4", features = ["gpio_cdev"], optional=true }
 embedded-nrf24l01 = { path = "./modules/embedded-nrf24l01", optional=true , version="=0.2.0"}
-#embedded-nrf24l01 = { optional=true , version="=0.2.0"}
 clap = { version = "3.2.25", features = ["derive"] }
 chrono = "0.4.38"
-
+nanomsg = { version = "0.7.2", features = ["bundled"] }
 [dev-dependencies]
 mock_instant = "0.3.1"
 

@@ -217,7 +217,7 @@ pub struct TelemetryEndpoint {
 }
 
 impl TelemetryEndpoint {
-    pub fn recv(&mut self, callback: impl Fn(TelemetryData)) {
+    pub fn recv(&mut self, mut callback: impl FnMut(TelemetryData)) {
         match self.command_receiver.recv() {
             Ok(data) => {
                 callback(data);

@@ -3,6 +3,7 @@ use control_frontend::{
     telemetry::{setup_telemetry, Config},
 };
 use log::info;
+use nanomsg::{Protocol, Socket};
 
 fn main() -> anyhow::Result<()> {
     simple_logger::init_with_env().unwrap();
@@ -28,10 +29,14 @@ fn main() -> anyhow::Result<()> {
         ]
         .into_iter(),
     )?;
+
+    let mut socket = Socket::new(Protocol::Pair)?;
+    socket.bind("tcp://0.0.0.0:2424")?;
     loop {
         telemetry.recv(|data| match data {
             control_frontend::telemetry::TelemetryData::Frame(node, data) => {
                 println!("{:?}, {:?}", node, data);
+                let _ = socket.nb_write(&data);
             }
             control_frontend::telemetry::TelemetryData::NoModule(node) => {
                 println!("{:?} not connected", node);

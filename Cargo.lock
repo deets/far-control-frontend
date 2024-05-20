@@ -681,6 +681,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmake"
+version = "0.1.50"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a31c789563b815f77f4250caee12365734369f942439b7defd71e18a48197130"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "colored"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -733,6 +742,7 @@ dependencies = [
  "log",
  "memoize",
  "mock_instant",
+ "nanomsg",
  "nb 1.1.0",
  "nom",
  "palette",
@@ -1325,6 +1335,12 @@ dependencies = [
  "pin-utils",
  "slab",
 ]
+
+[[package]]
+name = "gcc"
+version = "0.3.55"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f5f3913fa0bfe7ee1fd8248b6b9f42a5af4b9d65ec2dd2c3c26132b950ecfc2"
 
 [[package]]
 name = "generic-array"
@@ -1925,6 +1941,28 @@ name = "mutants"
 version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
+
+[[package]]
+name = "nanomsg"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "617e0160fba522f8667df7bc79f3b4a74a0e3968d08023ebb3ce717a5f3bd3ac"
+dependencies = [
+ "libc",
+ "nanomsg-sys",
+]
+
+[[package]]
+name = "nanomsg-sys"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78aa3ccb6d007dfecb4f7070725c4b1670a87677babb6621cb0c8cce9cfdc004"
+dependencies = [
+ "cmake",
+ "gcc",
+ "libc",
+ "pkg-config",
+]
 
 [[package]]
 name = "nb"

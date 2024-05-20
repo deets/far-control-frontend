@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "init"
+version = "0.1.0"
+description = ""
+authors = ["deets <deets@web.de>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+nanomsg = "^1.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
