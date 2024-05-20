@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -250,10 +250,15 @@ fn work(
     running: Arc<Mutex<bool>>,
 ) {
     loop {
+        let mut sent = false;
         for conn in connections.iter_mut() {
             for data in conn.read() {
+                sent = true;
                 sender.send(data).expect("crossbeam not working");
             }
+        }
+        if !sent {
+            thread::sleep(Duration::from_millis(10));
         }
         {
             let r = running.lock().unwrap();
