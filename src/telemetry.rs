@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
 use anyhow::anyhow;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -14,7 +15,7 @@ use linux_embedded_hal::{
     spidev::{SpiModeFlags, Spidev, SpidevOptions},
     CdevPin, CdevPinError,
 };
-use log::{error, warn};
+use log::{debug, error, warn};
 
 use crate::rqprotocol::Node;
 
@@ -106,13 +107,26 @@ fn create_nrf_module(chip: &mut Chip, ce_pin: u32, device: &str) -> anyhow::Resu
     Ok(nrf24)
 }
 
-fn enumerate_nrf_modules(chip: &mut Chip) -> impl Iterator<Item = NRFStandby> {
+enum NRFEntry {
+    Working(NRFStandby),
+    Unavailable,
+}
+
+fn enumerate_nrf_modules(chip: &mut Chip) -> impl Iterator<Item = NRFEntry> {
     let mut nrfs = vec![];
-    for (ce_pin, device) in [(22, "/dev/spidev0.0")] {
+    for (ce_pin, device) in [
+        (22, "/dev/spidev0.0"),
+        (25, "/dev/spidev0.1"),
+        (26, "/dev/spidev1.0"),
+        (27, "/dev/spidev1.1"),
+    ] {
         match create_nrf_module(chip, ce_pin, device) {
-            Ok(nrf) => nrfs.push(nrf),
+            Ok(nrf) => {
+                nrfs.push(NRFEntry::Working(nrf));
+            }
             Err(err) => {
-                error!("Can't setup NRF on {}, {:?}", device, err);
+                warn!("Can't setup NRF on {}, {:?}", device, err);
+                nrfs.push(NRFEntry::Unavailable);
             }
         }
     }
@@ -125,15 +139,75 @@ pub struct Config {
     pub channel: u8,
 }
 
-struct TelemetryConnection {
-    nrf: NRFRx,
-    node: Node,
+#[derive(Debug)]
+pub enum TelemetryData {
+    Frame(Node, Vec<u8>),
+    NoModule(Node),
 }
 
 #[derive(Debug)]
-pub struct TelemetryData {
-    pub source: Node,
-    pub data: Vec<u8>,
+enum NRFOrDummy {
+    Working(NRFRx),
+    Dummy(Instant),
+}
+
+impl NRFOrDummy {
+    fn read(&mut self, res: &mut Vec<TelemetryData>, node: Node) {
+        match self {
+            NRFOrDummy::Working(nrf) => {
+                while let Some(_) = nrf.can_read().unwrap() {
+                    let payload = nrf.read().unwrap();
+                    let data: &[u8] = &payload;
+                    let data = TelemetryData::Frame(node, data.into());
+                    res.push(data);
+                }
+            }
+            NRFOrDummy::Dummy(last_timestamp) => {
+                let elapsed = Instant::now() - *last_timestamp;
+                if elapsed.as_secs() > 5 {
+                    *last_timestamp = Instant::now();
+                    res.push(TelemetryData::NoModule(node));
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct TelemetryConnection {
+    nrf: NRFOrDummy,
+    node: Node,
+}
+
+impl TelemetryConnection {
+    fn new(config: Config, nrf: NRFEntry) -> Self {
+        let nrf = match nrf {
+            NRFEntry::Working(mut nrf) => match nrf.set_frequency(config.channel) {
+                Ok(_) => match nrf.rx() {
+                    Ok(rx_nrf) => NRFOrDummy::Working(rx_nrf),
+                    Err(_) => {
+                        warn!("Can't get module into RX mode");
+                        NRFOrDummy::Dummy(Instant::now())
+                    }
+                },
+                Err(_) => {
+                    warn!("Can't set frequency for {:?}", config);
+                    NRFOrDummy::Dummy(Instant::now())
+                }
+            },
+            NRFEntry::Unavailable => NRFOrDummy::Dummy(Instant::now()),
+        };
+        Self {
+            node: config.node,
+            nrf,
+        }
+    }
+
+    fn read(&mut self) -> Vec<TelemetryData> {
+        let mut res = vec![];
+        self.nrf.read(&mut res, self.node);
+        res
+    }
 }
 
 pub struct TelemetryEndpoint {
@@ -143,13 +217,14 @@ pub struct TelemetryEndpoint {
 }
 
 impl TelemetryEndpoint {
-    pub fn recv(&mut self, callback: impl FnOnce(TelemetryData)) {
+    pub fn recv(&mut self, callback: impl Fn(TelemetryData)) {
         match self.command_receiver.recv() {
             Ok(data) => {
                 callback(data);
             }
             Err(err) => {
                 error!("Can't read from cb channel: {:?}", err);
+                panic!();
             }
         }
     }
@@ -176,18 +251,12 @@ fn work(
 ) {
     loop {
         for conn in connections.iter_mut() {
-            while let Some(_) = conn.nrf.can_read().unwrap() {
-                let payload = conn.nrf.read().unwrap();
-                let data: &[u8] = &payload;
-                let data = TelemetryData {
-                    source: conn.node,
-                    data: data.into(),
-                };
+            for data in conn.read() {
                 sender.send(data).expect("crossbeam not working");
             }
         }
         {
-            let mut r = running.lock().unwrap();
+            let r = running.lock().unwrap();
             if !*r {
                 break;
             }
@@ -197,35 +266,19 @@ fn work(
 
 pub fn setup_telemetry(configs: impl Iterator<Item = Config>) -> anyhow::Result<TelemetryEndpoint> {
     let mut chip = Chip::new::<PathBuf>("/dev/gpiochip0".into())?;
-    let nrf_modules = enumerate_nrf_modules(&mut chip).collect::<Vec<NRFStandby>>();
+    let nrf_modules = enumerate_nrf_modules(&mut chip).collect::<Vec<NRFEntry>>();
     let configs = configs.collect::<Vec<Config>>();
     if nrf_modules.len() < configs.len() {
         warn!(
-            "Not enough modules for configuration, only configuring the first {}",
-            configs.len()
+            "Not enough modules for {} configurations, only configuring the first {}",
+            configs.len(),
+            nrf_modules.len()
         );
     }
     let mut connections = vec![];
-    for (config, mut nrf) in configs.into_iter().zip(nrf_modules.into_iter()) {
-        match nrf.set_frequency(config.channel) {
-            Ok(_) => {
-                if let Some(conn) = match nrf.rx() {
-                    Ok(rx_nrf) => Some(TelemetryConnection {
-                        nrf: rx_nrf,
-                        node: config.node,
-                    }),
-                    Err(_) => {
-                        warn!("Can't get module into RX mode");
-                        None
-                    }
-                } {
-                    connections.push(conn);
-                };
-            }
-            Err(_) => {
-                warn!("Can't set frequency for {:?}", config);
-            }
-        }
+    for (config, nrf) in configs.into_iter().zip(nrf_modules.into_iter()) {
+        let conn = TelemetryConnection::new(config, nrf);
+        connections.push(conn);
     }
     let running = Arc::new(Mutex::new(true));
     let worker_running = running.clone();
