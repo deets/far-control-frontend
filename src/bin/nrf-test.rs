@@ -87,15 +87,35 @@ fn setup_nrf(ce_pin: CEPin, spi: SpiWrapper) -> core::result::Result<NRFStandby,
     Ok(nrf24)
 }
 
+fn read_nrf(nrf: NRFStandby) -> core::result::Result<(), SpiError> {
+    let mut rx = nrf.rx().unwrap();
+    loop {
+        loop {
+            if let Some(_) = rx.can_read().unwrap() {
+                break;
+            }
+        }
+        let data = rx.read().unwrap();
+        let raw: &[u8] = &data;
+        print!("{}", std::str::from_utf8(raw).unwrap());
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     simple_logger::init_with_env().unwrap();
     info!("NRF TEST");
     let mut chip = Chip::new::<PathBuf>("/dev/gpiochip0".into())?;
-    let ce_pin3 = chip
-        .get_line(27)?
+    let ce_pin0 = chip
+        .get_line(22)?
         .request(LineRequestFlags::OUTPUT, 0, "e32linux")?;
-    let ce_pin3 = CEPin {
-        pin: CdevPin::new(ce_pin3)?,
+    let ce_pin0 = CEPin {
+        pin: CdevPin::new(ce_pin0)?,
+    };
+    let ce_pin1 = chip
+        .get_line(25)?
+        .request(LineRequestFlags::OUTPUT, 0, "e32linux")?;
+    let ce_pin1 = CEPin {
+        pin: CdevPin::new(ce_pin1)?,
     };
     let ce_pin2 = chip
         .get_line(26)?
@@ -103,12 +123,25 @@ fn main() -> anyhow::Result<()> {
     let ce_pin2 = CEPin {
         pin: CdevPin::new(ce_pin2)?,
     };
-    let spi10 = SpiWrapper(create_spi("/dev/spidev1.0")?);
-    let spi11 = SpiWrapper(create_spi("/dev/spidev1.1")?);
-    let nrf24 = match setup_nrf(ce_pin2, spi10) {
-        Ok(nrf) => Ok(nrf),
-        Err(_) => Err(anyhow!("Can't setup NRF24")),
+    let ce_pin3 = chip
+        .get_line(27)?
+        .request(LineRequestFlags::OUTPUT, 0, "e32linux")?;
+    let ce_pin3 = CEPin {
+        pin: CdevPin::new(ce_pin3)?,
     };
 
+    let spi00 = SpiWrapper(create_spi("/dev/spidev0.0")?);
+    let spi01 = SpiWrapper(create_spi("/dev/spidev0.1")?);
+    let spi10 = SpiWrapper(create_spi("/dev/spidev1.0")?);
+    let spi11 = SpiWrapper(create_spi("/dev/spidev1.1")?);
+
+    let mut nrf24 = match setup_nrf(ce_pin1, spi01) {
+        Ok(nrf) => Ok(nrf),
+        Err(_) => Err(anyhow!("Can't setup NRF24")),
+    }?;
+    match read_nrf(nrf24) {
+        Ok(_) => Ok(()),
+        Err(_) => Err(anyhow!("Can't receive with NRF24")),
+    }?;
     Ok(())
 }
