@@ -4,3 +4,6 @@
 [submodule "modules/ebyte-e32-ftdi"]
 	path = modules/ebyte-e32-ftdi
 	url = git@github.com:deets/ebyte-e32-ftdi.git
+[submodule "modules/embedded-nrf24l01"]
+	path = modules/embedded-nrf24l01
+	url = git@github.com:astro/embedded-nrf24l01.git

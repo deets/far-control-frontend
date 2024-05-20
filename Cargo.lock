@@ -1076,8 +1076,6 @@ dependencies = [
 [[package]]
 name = "embedded-nrf24l01"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ef45e1bc8be286af4b3e8f4871d7b35f2fb361d4b8fcc8c3a4dc4ff7735997b"
 dependencies = [
  "bitfield",
  "embedded-hal 0.2.7",
