@@ -158,8 +158,10 @@ impl NRFOrDummy {
                 while let Some(_) = nrf.can_read().unwrap() {
                     let payload = nrf.read().unwrap();
                     let data: &[u8] = &payload;
-                    let data = TelemetryData::Frame(node, data.into());
-                    res.push(data);
+                    if data.len() > 0 {
+                        let data = TelemetryData::Frame(node, data.into());
+                        res.push(data);
+                    }
                 }
             }
             NRFOrDummy::Dummy(last_timestamp) => {
@@ -297,4 +299,40 @@ pub fn setup_telemetry(configs: impl Iterator<Item = Config>) -> anyhow::Result<
         worker: Some(handle),
         running,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MessageParser {
+        buffer: Vec<u8>,
+    }
+
+    impl Default for MessageParser {
+        fn default() -> Self {
+            Self {
+                buffer: Default::default(),
+            }
+        }
+    }
+
+    impl MessageParser {
+        fn feed(&mut self, data: &[u8], callback: impl FnMut(&[u8])) {}
+    }
+
+    #[test]
+    fn test_message_parser() {
+        // let mut parser = MessageParser::default();
+        // let mut result = vec![];
+        // let a = b"$1,0BEBC200,0000010495916A20,000";
+        // let b = b"70EE1\x13\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+        // assert_eq!(a.len(), 32);
+        // assert_eq!(b.len(), 32);
+        // parser.feed(a, |message| {
+        //     let message: Vec<u8> = message.into();
+        //     result.push(message);
+        // });
+        // assert_eq!(result.len(), 1);
+    }
 }

@@ -32,7 +32,7 @@ use egui_sdl2_platform::sdl2;
 #[cfg(feature = "novaview")]
 use egui_sdl2_platform::sdl2::joystick::Joystick;
 
-use log::info;
+use log::{error, info};
 
 #[cfg(feature = "novaview")]
 use sdl2::event::{Event, WindowEvent};
