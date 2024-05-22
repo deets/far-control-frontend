@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use control_frontend::{
     rqprotocol::Node,
     telemetry::{setup_telemetry, Config},
@@ -32,14 +34,18 @@ fn main() -> anyhow::Result<()> {
 
     let mut socket = Socket::new(Protocol::Pair)?;
     socket.bind("tcp://0.0.0.0:2424")?;
+    let mut count = 0;
+    let start = Instant::now();
     loop {
         telemetry.recv(|data| match data {
             control_frontend::telemetry::TelemetryData::Frame(node, data) => {
-                println!("{:?}, {:?}", node, data);
                 let _ = socket.nb_write(&data);
+                count += data.len() * 8;
             }
             control_frontend::telemetry::TelemetryData::NoModule(node) => {
                 println!("{:?} not connected", node);
+                let kbps = count as f64 / 1000.0 / (Instant::now() - start).as_secs_f64();
+                println!("{:.3}kb/s", kbps);
             }
         });
     }
