@@ -12,7 +12,7 @@ use uom::si::pressure::bar;
 use crate::connection::Connection;
 use crate::ebyte::modem_baud_rate;
 use crate::layout::colors::{color32, kind_color, kind_color32, Intensity, Kind};
-use crate::model::{ControlArea, LaunchControlState, Mode, Model, StateProcessing};
+use crate::model::{ControlArea, LaunchControlMode, Mode, Model, StateProcessing};
 use crate::observables::rqa::{ObservablesGroup1, ObservablesGroup2, PyroStatus, RecordingState};
 use crate::observables::AdcGain;
 
@@ -123,7 +123,7 @@ fn render_digit(ui: &mut Ui, digit: u8, active: bool) {
     );
 }
 
-fn render_fire(ui: &mut Ui, state: &LaunchControlState) {
+fn render_fire(ui: &mut Ui, state: &LaunchControlMode) {
     let digit_font = FontId::new(54.0, egui::FontFamily::Monospace);
     let painter = ui.painter();
     let text = "Press Enter to Fire!";
@@ -137,13 +137,13 @@ fn render_fire(ui: &mut Ui, state: &LaunchControlState) {
         text,
         digit_font,
         text_color(match state {
-            LaunchControlState::WaitForFire { .. } => true,
+            LaunchControlMode::WaitForFire { .. } => true,
             _ => false,
         }),
     );
 }
 
-fn render_progress(ui: &mut Ui, state: &LaunchControlState, progress: f32, ignition: bool) {
+fn render_progress(ui: &mut Ui, state: &LaunchControlMode, progress: f32, ignition: bool) {
     let gradient = Gradient::new(vec![
         LinSrgb::new(0.0, 1.0, 0.0),
         LinSrgb::new(1.0, 1.0, 0.0),
@@ -152,14 +152,14 @@ fn render_progress(ui: &mut Ui, state: &LaunchControlState, progress: f32, ignit
     let color = color32(gradient.get(progress));
 
     let pbar = ProgressBar::new(progress).fill(match state {
-        LaunchControlState::PrepareIgnition { .. } => {
+        LaunchControlMode::PrepareIgnition { .. } => {
             if ignition {
                 color
             } else {
                 Color32::DARK_GRAY
             }
         }
-        LaunchControlState::PrepareUnlockPyros { .. } => {
+        LaunchControlMode::PrepareUnlockPyros { .. } => {
             if !ignition {
                 color
             } else {
@@ -171,7 +171,7 @@ fn render_progress(ui: &mut Ui, state: &LaunchControlState, progress: f32, ignit
     ui.add(pbar);
 }
 
-fn render_launch_control_interactions(ui: &mut Ui, state: &LaunchControlState) {
+fn render_launch_control_interactions(ui: &mut Ui, state: &LaunchControlMode) {
     let (hi_a, lo_a, hi_b, lo_b) = state.digits();
     let (hi_a_hl, lo_a_hl, hi_b_hl, lo_b_hl) = state.highlights();
 
@@ -195,7 +195,7 @@ fn render_launch_control_interactions(ui: &mut Ui, state: &LaunchControlState) {
         ui.label(
             RichText::new("Unlock Pyros")
                 .color(text_color(
-                    if let LaunchControlState::PrepareUnlockPyros { .. } = state {
+                    if let LaunchControlMode::PrepareUnlockPyros { .. } = state {
                         true
                     } else {
                         false
@@ -223,7 +223,7 @@ fn render_launch_control_interactions(ui: &mut Ui, state: &LaunchControlState) {
         ui.label(
             RichText::new("Arm Pyros")
                 .color(text_color(
-                    if let LaunchControlState::PrepareIgnition { .. } = state {
+                    if let LaunchControlMode::PrepareIgnition { .. } = state {
                         true
                     } else {
                         false
@@ -318,11 +318,7 @@ fn render_rocket_screen(ui: &mut Ui) {
     );
 }
 
-fn render_launch_control(
-    ui: &mut Ui,
-    state: &LaunchControlState,
-    obg2: &Option<ObservablesGroup2>,
-) {
+fn render_launch_control(ui: &mut Ui, state: &LaunchControlMode, obg2: &Option<ObservablesGroup2>) {
     ui.horizontal(|ui| {
         let left_width = (ui.available_width() * 0.7).ceil();
         let right_width = ui.available_width() - left_width;
@@ -332,8 +328,8 @@ fn render_launch_control(
             .frame(clear_frame())
             .exact_width(left_width)
             .show_inside(ui, |ui| match state {
-                LaunchControlState::WaitForPyroTimeout(_) => render_rocket_screen(ui),
-                LaunchControlState::SwitchToObservables => render_rocket_screen(ui),
+                LaunchControlMode::WaitForPyroTimeout(_) => render_rocket_screen(ui),
+                LaunchControlMode::SwitchToObservables => render_rocket_screen(ui),
                 _ => {
                     render_launch_control_interactions(ui, state);
                 }
@@ -664,6 +660,9 @@ fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
                     format!("Recording: {:?}", path)
                 }),
         );
+        if let Some(reset_countdown) = model.auto_reset_in() {
+            ui.label(format!("Automatic reset in: {}", reset_countdown.as_secs()));
+        }
     });
 }
 

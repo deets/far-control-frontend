@@ -23,6 +23,8 @@ use crate::{
     rqprotocol::{Command, Response},
 };
 
+const AUTO_RESET_TIMEOUT: Duration = Duration::from_secs(120);
+
 #[derive(Clone)]
 pub struct SharedIdGenerator {
     command_id_generator: Arc<Mutex<SimpleIdGenerator>>,
@@ -45,7 +47,7 @@ impl Default for SharedIdGenerator {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum LaunchControlState {
+pub enum LaunchControlMode {
     Start,
     Failure,
     Reset,
@@ -108,7 +110,7 @@ pub enum LaunchControlState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ObservablesState {
+pub enum ObservablesMode {
     Start,
     Failure,
     Reset,
@@ -117,8 +119,8 @@ pub enum ObservablesState {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
-    Observables(ObservablesState),
-    LaunchControl(LaunchControlState),
+    Observables(ObservablesMode),
+    LaunchControl(LaunchControlMode),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -139,6 +141,7 @@ where
     start: Instant,
     now: Instant,
     port: String,
+    last_state_change: Option<Instant>,
     pub obg1: Vec<ObservablesGroup1>,
     pub obg2: Option<ObservablesGroup2>,
     pub established_connection_at: Option<Instant>,
@@ -170,10 +173,12 @@ pub trait StateProcessing {
     fn failure_mode(&self) -> Self::State;
 
     fn reset_ongoing(&self) -> bool;
+
+    fn affected_by_timeout(&self) -> bool;
 }
 
-impl StateProcessing for LaunchControlState {
-    type State = LaunchControlState;
+impl StateProcessing for LaunchControlMode {
+    type State = LaunchControlMode;
 
     fn process_response(&self, response: Response) -> Self::State {
         match self {
@@ -264,23 +269,23 @@ impl StateProcessing for LaunchControlState {
 
     fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea) {
         match self {
-            LaunchControlState::Idle => self.process_event_idle(event),
-            LaunchControlState::EnterDigitHiA { hi_a } => {
+            LaunchControlMode::Idle => self.process_event_idle(event),
+            LaunchControlMode::EnterDigitHiA { hi_a } => {
                 self.process_event_enter_higit_hi_a(event, *hi_a)
             }
-            LaunchControlState::EnterDigitLoA { hi_a, lo_a } => {
+            LaunchControlMode::EnterDigitLoA { hi_a, lo_a } => {
                 self.process_event_enter_higit_lo_a(event, *hi_a, *lo_a)
             }
-            LaunchControlState::EnterDigitHiB { hi_a, lo_a, hi_b } => {
+            LaunchControlMode::EnterDigitHiB { hi_a, lo_a, hi_b } => {
                 self.process_event_enter_higit_hi_b(event, *hi_a, *lo_a, *hi_b)
             }
-            LaunchControlState::EnterDigitLoB {
+            LaunchControlMode::EnterDigitLoB {
                 hi_a,
                 lo_a,
                 hi_b,
                 lo_b,
             } => self.process_event_enter_higit_lo_b(event, *hi_a, *lo_a, *hi_b, *lo_b),
-            LaunchControlState::PrepareIgnition {
+            LaunchControlMode::PrepareIgnition {
                 hi_a,
                 lo_a,
                 hi_b,
@@ -296,36 +301,36 @@ impl StateProcessing for LaunchControlState {
                 *progress,
                 *last_update,
             ),
-            LaunchControlState::PrepareUnlockPyros {
+            LaunchControlMode::PrepareUnlockPyros {
                 hi_a,
                 lo_a,
                 progress,
                 last_update,
             } => self.process_unlock_pyros(event, *hi_a, *lo_a, *progress, *last_update),
-            LaunchControlState::WaitForFire {
+            LaunchControlMode::WaitForFire {
                 hi_a,
                 lo_a,
                 hi_b,
                 lo_b,
             } => self.process_fire(event, *hi_a, *lo_a, *hi_b, *lo_b),
             // only left through a response
-            LaunchControlState::TransmitKeyA { .. } => (*self, ControlArea::Details),
+            LaunchControlMode::TransmitKeyA { .. } => (*self, ControlArea::Details),
             // only left through a response
-            LaunchControlState::TransmitKeyAB { .. } => (*self, ControlArea::Details),
+            LaunchControlMode::TransmitKeyAB { .. } => (*self, ControlArea::Details),
             // only left through a response
-            LaunchControlState::Fire => (*self, ControlArea::Details),
+            LaunchControlMode::Fire => (*self, ControlArea::Details),
             // only left through a response
-            LaunchControlState::UnlockPyros { .. } => (*self, ControlArea::Details),
+            LaunchControlMode::UnlockPyros { .. } => (*self, ControlArea::Details),
             _ => self.process_event_nop(event),
         }
     }
 
     fn process_mode_change(&self) -> Option<Command> {
         match self {
-            LaunchControlState::TransmitKeyA { hi_a, lo_a } => {
+            LaunchControlMode::TransmitKeyA { hi_a, lo_a } => {
                 Some(Command::LaunchSecretPartial(hi_a << 4 | lo_a))
             }
-            LaunchControlState::TransmitKeyAB {
+            LaunchControlMode::TransmitKeyAB {
                 hi_a,
                 lo_a,
                 hi_b,
@@ -334,22 +339,22 @@ impl StateProcessing for LaunchControlState {
                 hi_a << 4 | lo_a,
                 hi_b << 4 | lo_b,
             )),
-            LaunchControlState::Fire => Some(Command::Ignition),
-            LaunchControlState::UnlockPyros { .. } => Some(Command::UnlockPyros),
+            LaunchControlMode::Fire => Some(Command::Ignition),
+            LaunchControlMode::UnlockPyros { .. } => Some(Command::UnlockPyros),
             _ => None,
         }
     }
 
     fn drive(&self) -> Self {
         match self {
-            LaunchControlState::PrepareIgnition {
+            LaunchControlMode::PrepareIgnition {
                 hi_a,
                 lo_a,
                 hi_b,
                 lo_b,
                 progress,
                 last_update,
-            } => LaunchControlState::PrepareIgnition {
+            } => LaunchControlMode::PrepareIgnition {
                 hi_a: *hi_a,
                 lo_a: *lo_a,
                 hi_b: *hi_b,
@@ -365,12 +370,12 @@ impl StateProcessing for LaunchControlState {
                 },
                 last_update: *last_update,
             },
-            LaunchControlState::PrepareUnlockPyros {
+            LaunchControlMode::PrepareUnlockPyros {
                 hi_a,
                 lo_a,
                 progress,
                 last_update,
-            } => LaunchControlState::PrepareUnlockPyros {
+            } => LaunchControlMode::PrepareUnlockPyros {
                 hi_a: *hi_a,
                 lo_a: *lo_a,
                 progress: if *progress < 100 {
@@ -384,9 +389,9 @@ impl StateProcessing for LaunchControlState {
                 },
                 last_update: *last_update,
             },
-            LaunchControlState::WaitForPyroTimeout(timeout) => {
+            LaunchControlMode::WaitForPyroTimeout(timeout) => {
                 if timeout.elapsed() > Duration::from_secs(3) {
-                    LaunchControlState::SwitchToObservables
+                    LaunchControlMode::SwitchToObservables
                 } else {
                     *self
                 }
@@ -397,9 +402,9 @@ impl StateProcessing for LaunchControlState {
 
     fn connected(&self) -> bool {
         match self {
-            LaunchControlState::Start => false,
-            LaunchControlState::Failure => false,
-            LaunchControlState::Reset => false,
+            LaunchControlMode::Start => false,
+            LaunchControlMode::Failure => false,
+            LaunchControlMode::Reset => false,
             _ => true,
         }
     }
@@ -414,20 +419,24 @@ impl StateProcessing for LaunchControlState {
 
     fn reset_ongoing(&self) -> bool {
         match self {
-            LaunchControlState::Start => true,
-            LaunchControlState::Reset => true,
+            LaunchControlMode::Start => true,
+            LaunchControlMode::Reset => true,
             _ => false,
         }
     }
+
+    fn affected_by_timeout(&self) -> bool {
+        !self.reset_ongoing() && *self != Self::Idle
+    }
 }
 
-impl StateProcessing for ObservablesState {
-    type State = ObservablesState;
+impl StateProcessing for ObservablesMode {
+    type State = ObservablesMode;
 
     fn process_response(&self, response: Response) -> Self::State {
         match self {
-            ObservablesState::Failure => todo!(),
-            ObservablesState::Reset => match response {
+            ObservablesMode::Failure => todo!(),
+            ObservablesMode::Reset => match response {
                 Response::ResetAck => Self::State::Idle,
                 _ => Self::State::Start,
             },
@@ -475,9 +484,9 @@ impl StateProcessing for ObservablesState {
 
     fn connected(&self) -> bool {
         match self {
-            ObservablesState::Start => false,
-            ObservablesState::Failure => false,
-            ObservablesState::Reset => false,
+            ObservablesMode::Start => false,
+            ObservablesMode::Failure => false,
+            ObservablesMode::Reset => false,
             _ => true,
         }
     }
@@ -497,15 +506,19 @@ impl StateProcessing for ObservablesState {
             _ => false,
         }
     }
+
+    fn affected_by_timeout(&self) -> bool {
+        false
+    }
 }
 
-impl Default for LaunchControlState {
+impl Default for LaunchControlMode {
     fn default() -> Self {
         Self::Start
     }
 }
 
-impl Default for ObservablesState {
+impl Default for ObservablesMode {
     fn default() -> Self {
         Self::Start
     }
@@ -567,8 +580,8 @@ impl StateProcessing for Mode {
             Mode::LaunchControl(state) => Mode::LaunchControl(state.drive()),
             Mode::Observables(state) => Mode::Observables(state.drive()),
         };
-        if let Mode::LaunchControl(LaunchControlState::SwitchToObservables) = mode {
-            mode = Mode::Observables(ObservablesState::Start)
+        if let Mode::LaunchControl(LaunchControlMode::SwitchToObservables) = mode {
+            mode = Mode::Observables(ObservablesMode::Start)
         }
         mode
     }
@@ -600,6 +613,13 @@ impl StateProcessing for Mode {
             Mode::LaunchControl(state) => state.reset_ongoing(),
         }
     }
+
+    fn affected_by_timeout(&self) -> bool {
+        match self {
+            Mode::Observables(state) => state.affected_by_timeout(),
+            Mode::LaunchControl(state) => state.affected_by_timeout(),
+        }
+    }
 }
 
 impl Default for ControlArea {
@@ -608,64 +628,64 @@ impl Default for ControlArea {
     }
 }
 
-impl LaunchControlState {
+impl LaunchControlMode {
     pub fn digits(&self) -> (u8, u8, u8, u8) {
         match self {
-            LaunchControlState::Start => (0, 0, 0, 0),
-            LaunchControlState::Failure => (0, 0, 0, 0),
-            LaunchControlState::Reset => (0, 0, 0, 0),
-            LaunchControlState::Idle => (0, 0, 0, 0),
-            LaunchControlState::EnterDigitHiA { hi_a } => (*hi_a, 0, 0, 0),
-            LaunchControlState::EnterDigitLoA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
-            LaunchControlState::PrepareUnlockPyros { hi_a, lo_a, .. } => (*hi_a, *lo_a, 0, 0),
-            LaunchControlState::UnlockPyros { hi_a, lo_a, .. } => (*hi_a, *lo_a, 0, 0),
-            LaunchControlState::TransmitKeyA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
-            LaunchControlState::EnterDigitHiB { hi_a, lo_a, hi_b } => (*hi_a, *lo_a, *hi_b, 0),
-            LaunchControlState::EnterDigitLoB {
+            LaunchControlMode::Start => (0, 0, 0, 0),
+            LaunchControlMode::Failure => (0, 0, 0, 0),
+            LaunchControlMode::Reset => (0, 0, 0, 0),
+            LaunchControlMode::Idle => (0, 0, 0, 0),
+            LaunchControlMode::EnterDigitHiA { hi_a } => (*hi_a, 0, 0, 0),
+            LaunchControlMode::EnterDigitLoA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
+            LaunchControlMode::PrepareUnlockPyros { hi_a, lo_a, .. } => (*hi_a, *lo_a, 0, 0),
+            LaunchControlMode::UnlockPyros { hi_a, lo_a, .. } => (*hi_a, *lo_a, 0, 0),
+            LaunchControlMode::TransmitKeyA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
+            LaunchControlMode::EnterDigitHiB { hi_a, lo_a, hi_b } => (*hi_a, *lo_a, *hi_b, 0),
+            LaunchControlMode::EnterDigitLoB {
                 hi_a,
                 lo_a,
                 hi_b,
                 lo_b,
             } => (*hi_a, *lo_a, *hi_b, *lo_b),
-            LaunchControlState::TransmitKeyAB {
+            LaunchControlMode::TransmitKeyAB {
                 hi_a,
                 lo_a,
                 hi_b,
                 lo_b,
             } => (*hi_a, *lo_a, *hi_b, *lo_b),
-            LaunchControlState::PrepareIgnition {
+            LaunchControlMode::PrepareIgnition {
                 hi_a,
                 lo_a,
                 hi_b,
                 lo_b,
                 ..
             } => (*hi_a, *lo_a, *hi_b, *lo_b),
-            LaunchControlState::WaitForFire {
+            LaunchControlMode::WaitForFire {
                 hi_a,
                 lo_a,
                 hi_b,
                 lo_b,
             } => (*hi_a, *lo_a, *hi_b, *lo_b),
-            LaunchControlState::Fire => (0, 0, 0, 0),
-            LaunchControlState::WaitForPyroTimeout(_) => (0, 0, 0, 0),
-            LaunchControlState::SwitchToObservables => (0, 0, 0, 0),
+            LaunchControlMode::Fire => (0, 0, 0, 0),
+            LaunchControlMode::WaitForPyroTimeout(_) => (0, 0, 0, 0),
+            LaunchControlMode::SwitchToObservables => (0, 0, 0, 0),
         }
     }
 
     pub fn highlights(&self) -> (bool, bool, bool, bool) {
         match self {
-            LaunchControlState::EnterDigitHiA { .. } => (true, false, false, false),
-            LaunchControlState::EnterDigitLoA { .. } => (false, true, false, false),
-            LaunchControlState::EnterDigitHiB { .. } => (false, false, true, false),
-            LaunchControlState::EnterDigitLoB { .. } => (false, false, false, true),
+            LaunchControlMode::EnterDigitHiA { .. } => (true, false, false, false),
+            LaunchControlMode::EnterDigitLoA { .. } => (false, true, false, false),
+            LaunchControlMode::EnterDigitHiB { .. } => (false, false, true, false),
+            LaunchControlMode::EnterDigitLoB { .. } => (false, false, false, true),
             _ => (false, false, false, false),
         }
     }
 
     pub fn prepare_ignition_progress(&self) -> f32 {
         let p = match self {
-            LaunchControlState::PrepareIgnition { progress, .. } => *progress,
-            LaunchControlState::WaitForFire { .. } => 100,
+            LaunchControlMode::PrepareIgnition { progress, .. } => *progress,
+            LaunchControlMode::WaitForFire { .. } => 100,
             _ => 0,
         };
         p as f32 / 100.0
@@ -673,14 +693,14 @@ impl LaunchControlState {
 
     pub fn unlock_pyros_progress(&self) -> f32 {
         let p = match self {
-            LaunchControlState::Start => 0,
-            LaunchControlState::Failure => 0,
-            LaunchControlState::Reset => 0,
-            LaunchControlState::Idle => 0,
-            LaunchControlState::EnterDigitHiA { .. } => 0,
-            LaunchControlState::EnterDigitLoA { .. } => 0,
-            LaunchControlState::TransmitKeyA { .. } => 0,
-            LaunchControlState::PrepareUnlockPyros { progress, .. } => *progress,
+            LaunchControlMode::Start => 0,
+            LaunchControlMode::Failure => 0,
+            LaunchControlMode::Reset => 0,
+            LaunchControlMode::Idle => 0,
+            LaunchControlMode::EnterDigitHiA { .. } => 0,
+            LaunchControlMode::EnterDigitLoA { .. } => 0,
+            LaunchControlMode::TransmitKeyA { .. } => 0,
+            LaunchControlMode::PrepareUnlockPyros { progress, .. } => *progress,
             _ => 100,
         };
         p as f32 / 100.0
@@ -694,7 +714,7 @@ impl LaunchControlState {
     fn process_event_idle(&self, event: &InputEvent) -> (Self, ControlArea) {
         match event {
             InputEvent::Enter => (
-                LaunchControlState::EnterDigitHiA { hi_a: 0 },
+                LaunchControlMode::EnterDigitHiA { hi_a: 0 },
                 ControlArea::Details,
             ),
             _ => self.process_event_nop(event),
@@ -704,21 +724,21 @@ impl LaunchControlState {
     fn process_event_enter_higit_hi_a(&self, event: &InputEvent, digit: u8) -> (Self, ControlArea) {
         match event {
             InputEvent::Enter => (
-                LaunchControlState::EnterDigitLoA {
+                LaunchControlMode::EnterDigitLoA {
                     hi_a: digit,
                     lo_a: 0,
                 },
                 ControlArea::Details,
             ),
-            InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
+            InputEvent::Back => (LaunchControlMode::Start, ControlArea::Tabs),
             InputEvent::Right(_) => (
-                LaunchControlState::EnterDigitHiA {
+                LaunchControlMode::EnterDigitHiA {
                     hi_a: (digit + 1) % 16,
                 },
                 ControlArea::Details,
             ),
             InputEvent::Left(_) => (
-                LaunchControlState::EnterDigitHiA {
+                LaunchControlMode::EnterDigitHiA {
                     hi_a: (16 + digit - 1) % 16,
                 },
                 ControlArea::Details,
@@ -735,23 +755,23 @@ impl LaunchControlState {
     ) -> (Self, ControlArea) {
         match event {
             InputEvent::Enter => (
-                LaunchControlState::TransmitKeyA { hi_a, lo_a },
+                LaunchControlMode::TransmitKeyA { hi_a, lo_a },
                 ControlArea::Details,
             ),
             // Back to high digit!
             InputEvent::Back => (
-                LaunchControlState::EnterDigitHiA { hi_a },
+                LaunchControlMode::EnterDigitHiA { hi_a },
                 ControlArea::Details,
             ),
             InputEvent::Right(_) => (
-                LaunchControlState::EnterDigitLoA {
+                LaunchControlMode::EnterDigitLoA {
                     hi_a,
                     lo_a: (lo_a + 1) % 16,
                 },
                 ControlArea::Details,
             ),
             InputEvent::Left(_) => (
-                LaunchControlState::EnterDigitLoA {
+                LaunchControlMode::EnterDigitLoA {
                     hi_a,
                     lo_a: (16 + lo_a - 1) % 16,
                 },
@@ -770,7 +790,7 @@ impl LaunchControlState {
     ) -> (Self, ControlArea) {
         match event {
             InputEvent::Enter => (
-                LaunchControlState::EnterDigitLoB {
+                LaunchControlMode::EnterDigitLoB {
                     hi_a,
                     lo_a,
                     hi_b,
@@ -778,9 +798,9 @@ impl LaunchControlState {
                 },
                 ControlArea::Details,
             ),
-            InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
+            InputEvent::Back => (LaunchControlMode::Start, ControlArea::Tabs),
             InputEvent::Right(_) => (
-                LaunchControlState::EnterDigitHiB {
+                LaunchControlMode::EnterDigitHiB {
                     hi_a,
                     lo_a,
                     hi_b: (hi_b + 1) % 16,
@@ -788,7 +808,7 @@ impl LaunchControlState {
                 ControlArea::Details,
             ),
             InputEvent::Left(_) => (
-                LaunchControlState::EnterDigitHiB {
+                LaunchControlMode::EnterDigitHiB {
                     hi_a,
                     lo_a,
                     hi_b: (16 + hi_b - 1) % 16,
@@ -809,7 +829,7 @@ impl LaunchControlState {
     ) -> (Self, ControlArea) {
         match event {
             InputEvent::Enter => (
-                LaunchControlState::TransmitKeyAB {
+                LaunchControlMode::TransmitKeyAB {
                     hi_a,
                     lo_a,
                     hi_b,
@@ -819,11 +839,11 @@ impl LaunchControlState {
             ),
             // Back to the high digit!
             InputEvent::Back => (
-                LaunchControlState::EnterDigitHiB { hi_a, lo_a, hi_b },
+                LaunchControlMode::EnterDigitHiB { hi_a, lo_a, hi_b },
                 ControlArea::Details,
             ),
             InputEvent::Right(_) => (
-                LaunchControlState::EnterDigitLoB {
+                LaunchControlMode::EnterDigitLoB {
                     hi_a,
                     lo_a,
                     hi_b,
@@ -832,7 +852,7 @@ impl LaunchControlState {
                 ControlArea::Details,
             ),
             InputEvent::Left(_) => (
-                LaunchControlState::EnterDigitLoB {
+                LaunchControlMode::EnterDigitLoB {
                     hi_a,
                     lo_a,
                     hi_b,
@@ -857,7 +877,7 @@ impl LaunchControlState {
         let now = Instant::now();
         if progress == 100 {
             (
-                LaunchControlState::WaitForFire {
+                LaunchControlMode::WaitForFire {
                     hi_a,
                     lo_a,
                     hi_b,
@@ -867,9 +887,9 @@ impl LaunchControlState {
             )
         } else {
             match event {
-                InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
+                InputEvent::Back => (LaunchControlMode::Start, ControlArea::Tabs),
                 InputEvent::Right(_) => (
-                    LaunchControlState::PrepareIgnition {
+                    LaunchControlMode::PrepareIgnition {
                         hi_a,
                         lo_a,
                         hi_b,
@@ -880,7 +900,7 @@ impl LaunchControlState {
                     ControlArea::Details,
                 ),
                 _ => (
-                    LaunchControlState::PrepareIgnition {
+                    LaunchControlMode::PrepareIgnition {
                         hi_a,
                         lo_a,
                         hi_b,
@@ -905,14 +925,14 @@ impl LaunchControlState {
         let now = Instant::now();
         if progress == 100 {
             (
-                LaunchControlState::UnlockPyros { hi_a, lo_a },
+                LaunchControlMode::UnlockPyros { hi_a, lo_a },
                 ControlArea::Details,
             )
         } else {
             match event {
-                InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
+                InputEvent::Back => (LaunchControlMode::Start, ControlArea::Tabs),
                 InputEvent::Right(_) => (
-                    LaunchControlState::PrepareUnlockPyros {
+                    LaunchControlMode::PrepareUnlockPyros {
                         hi_a,
                         lo_a,
                         progress: std::cmp::min(progress + 3, 100),
@@ -921,7 +941,7 @@ impl LaunchControlState {
                     ControlArea::Details,
                 ),
                 _ => (
-                    LaunchControlState::PrepareUnlockPyros {
+                    LaunchControlMode::PrepareUnlockPyros {
                         hi_a,
                         lo_a,
                         progress,
@@ -942,10 +962,10 @@ impl LaunchControlState {
         lo_b: u8,
     ) -> (Self, ControlArea) {
         match event {
-            InputEvent::Back => (LaunchControlState::Start, ControlArea::Tabs),
-            InputEvent::Enter => (LaunchControlState::Fire, ControlArea::Details),
+            InputEvent::Back => (LaunchControlMode::Start, ControlArea::Tabs),
+            InputEvent::Enter => (LaunchControlMode::Fire, ControlArea::Details),
             _ => (
-                LaunchControlState::WaitForFire {
+                LaunchControlMode::WaitForFire {
                     hi_a,
                     lo_a,
                     hi_b,
@@ -969,9 +989,9 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
     ) -> Self {
         Self {
             mode: if start_with_launch_control {
-                Mode::LaunchControl(LaunchControlState::default())
+                Mode::LaunchControl(LaunchControlMode::default())
             } else {
-                Mode::Observables(ObservablesState::default())
+                Mode::Observables(ObservablesMode::default())
             },
             control: Default::default(),
             consort,
@@ -979,6 +999,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             now,
             module,
             port: port.into(),
+            last_state_change: None,
             obg1: vec![],
             obg2: None,
             established_connection_at: None,
@@ -999,8 +1020,9 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
         self.now = now;
         self.consort.update_time(now);
         // When we are in start state, start a reset cycle
-        if self.mode.is_start() {
+        if self.mode.is_start() || self.effect_timeout() {
             self.reset();
+            self.control = Default::default();
             return Ok(());
         }
 
@@ -1065,6 +1087,18 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
         }
         self.set_mode(self.mode.drive());
         Ok(())
+    }
+
+    fn effect_timeout(&self) -> bool {
+        if let Some(last_state_change) = self.last_state_change {
+            if self.mode.affected_by_timeout()
+                && Instant::now().duration_since(last_state_change) > AUTO_RESET_TIMEOUT
+            {
+                error!("TIMEOUT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                return true;
+            }
+        }
+        return false;
     }
 
     fn reset(&mut self) {
@@ -1141,6 +1175,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             debug!("old mode: {:?}, new mode: {:?}", self.mode, mode);
             self.mode = mode;
             self.process_mode_change();
+            self.last_state_change = Some(Instant::now());
         }
     }
 
@@ -1173,11 +1208,20 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             .and_then(|timepoint| Some(Instant::now() - timepoint))
     }
 
+    pub fn auto_reset_in(&self) -> Option<Duration> {
+        if self.mode.affected_by_timeout() {
+            if let Some(last_state_change) = self.last_state_change {
+                return Some(AUTO_RESET_TIMEOUT - Instant::now().duration_since(last_state_change));
+            }
+        }
+        None
+    }
+
     fn toggle_tab(&mut self) -> ControlArea {
         if !self.mode.reset_ongoing() {
             self.mode = match self.mode {
-                Mode::LaunchControl(_) => Mode::Observables(ObservablesState::Start),
-                Mode::Observables(_) => Mode::LaunchControl(LaunchControlState::Start),
+                Mode::LaunchControl(_) => Mode::Observables(ObservablesMode::Start),
+                Mode::Observables(_) => Mode::LaunchControl(LaunchControlMode::Start),
             }
         }
         ControlArea::Tabs
