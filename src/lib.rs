@@ -16,6 +16,7 @@ pub mod recorder;
 pub mod render;
 pub mod rqparser;
 pub mod rqprotocol;
+#[cfg(feature = "novaview")]
 pub mod telemetry;
 pub mod timestep;
 pub mod visualisation;

@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+#[cfg(feature = "novaview")]
 use control_frontend::{
     rqprotocol::Node,
     telemetry::{setup_telemetry, Config},
@@ -7,6 +8,7 @@ use control_frontend::{
 use log::info;
 use nanomsg::{Protocol, Socket};
 
+#[cfg(feature = "novaview")]
 fn main() -> anyhow::Result<()> {
     simple_logger::init_with_env().unwrap();
     info!("NRF TEST");
@@ -51,3 +53,6 @@ fn main() -> anyhow::Result<()> {
     }
     //    Ok(())
 }
+
+#[cfg(not(feature = "novaview"))]
+fn main() {}
