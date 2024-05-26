@@ -8,9 +8,11 @@ homepage = "https://alternative-raumfahrt.de"
 license-file = "LICENSE"
 
 [features]
+#default = ["e32"]
 default = ["e32", "novaview"]
+#default = ["e32", "eframe"]
 e32 = ["dep:ebyte-e32", "dep:ebyte-e32-ftdi"]
-novaview = ["dep:egui_sdl2_platform", "dep:linux-embedded-hal", "dep:embedded-nrf24l01"]
+novaview = ["dep:egui_sdl2_platform", "dep:linux-embedded-hal", "dep:embedded-nrf24l01", "dep:sd-notify", "dep:signal-hook"]
 eframe = ["dep:eframe"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -48,6 +50,8 @@ embedded-nrf24l01 = { path = "./modules/embedded-nrf24l01", optional=true , vers
 clap = { version = "3.2.25", features = ["derive"] }
 chrono = "0.4.38"
 nanomsg = { version = "0.7.2", features = ["bundled"] }
+sd-notify = { version = "0.4.1", optional=true }
+signal-hook = {version = "0.3.17", optional=true }
 [dev-dependencies]
 mock_instant = "0.3.1"
 

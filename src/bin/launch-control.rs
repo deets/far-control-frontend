@@ -343,7 +343,10 @@ impl JoystickProcessor {
 }
 
 #[cfg(feature = "novaview")]
-async fn run() -> anyhow::Result<()> {
+fn run() -> anyhow::Result<()> {
+    use sd_notify::NotifyState;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     simple_logger::init_with_env().unwrap();
     let id_generator = SharedIdGenerator::default();
     let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
@@ -392,14 +395,19 @@ async fn run() -> anyhow::Result<()> {
     // Create the egui + sdl2 platform
     let mut platform = egui_sdl2_platform::Platform::new(window.size())?;
 
-    // The clear color
-    let color = [0.0, 0.0, 0.0, 1.0];
     // Get the time before the loop started
     let start_time = Instant::now();
     let mut timestep = TimeStep::new();
+    let _ = sd_notify::notify(true, &[NotifyState::Ready]);
 
-    'main: loop {
-        // Update the time
+    let sig_term = Arc::new(AtomicBool::new(false));
+    let sig_int = Arc::new(AtomicBool::new(false));
+    signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&sig_term))?;
+    signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&sig_int))?;
+
+    'main: while !(sig_term.load(Ordering::Relaxed) || sig_int.load(Ordering::Relaxed)) {
+        sd_notify::notify(true, &[NotifyState::Watchdog])?;
+
         let (quit, input_events) = get_input_events(
             &mut event_pump,
             &mut platform,
@@ -423,21 +431,17 @@ async fn run() -> anyhow::Result<()> {
         let paint_jobs = platform.tessellate(&full_output);
         let pj = paint_jobs.as_slice();
 
-        // unsafe {
-        //     painter.gl().clear_color(color[0], color[1], color[2], 1.0);
-        //     painter.gl().clear(gl::COLOR_BUFFER_BIT);
-        // }
-
         let size = window.size();
         painter.paint_and_update_textures([size.0, size.1], 1.0, pj, &full_output.textures_delta);
         window.gl_swap_window();
         timestep.run_this(|_| {});
     }
-    Ok(())
+    info!("Shutdown due to signal");
+    std::process::exit(0);
 }
 
 #[cfg(feature = "novaview")]
 fn main() -> anyhow::Result<()> {
-    pollster::block_on(run())?;
+    run()?;
     Ok(())
 }
