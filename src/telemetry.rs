@@ -15,13 +15,15 @@ use linux_embedded_hal::{
     spidev::{SpiModeFlags, Spidev, SpidevOptions},
     CdevPin, CdevPinError,
 };
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 
 use crate::rqprotocol::Node;
 
 type SpiError = embedded_nrf24l01::Error<std::io::Error>;
 type NRFStandby = StandbyMode<NRF24L01<CdevPinError, CEPin, NullPin, SpiWrapper>>;
 type NRFRx = RxMode<NRF24L01<CdevPinError, CEPin, NullPin, SpiWrapper>>;
+
+const PIPE_ADDRESS: &[u8] = b"RQARQ";
 
 struct NullPin {}
 impl OutputPin for NullPin {
@@ -86,8 +88,8 @@ fn setup_nrf(ce_pin: CEPin, spi: SpiWrapper) -> core::result::Result<NRFStandby,
     nrf24.set_rf(&DataRate::R250Kbps, 3)?;
     nrf24.set_auto_ack(&[false; 6])?;
     nrf24.set_crc(CrcMode::TwoBytes)?;
-    nrf24.set_tx_addr(&b"RQARQ"[..])?;
-    nrf24.set_rx_addr(0, &b"RQARQ"[..])?;
+    nrf24.set_tx_addr(&PIPE_ADDRESS[..])?;
+    nrf24.set_rx_addr(0, &PIPE_ADDRESS[..])?;
     nrf24.set_pipes_rx_lengths(&[Some(32); 6])?;
     Ok(nrf24)
 }
@@ -122,6 +124,7 @@ fn enumerate_nrf_modules(chip: &mut Chip) -> impl Iterator<Item = NRFEntry> {
     ] {
         match create_nrf_module(chip, ce_pin, device) {
             Ok(nrf) => {
+                info!("NRF on {}", device);
                 nrfs.push(NRFEntry::Working(nrf));
             }
             Err(err) => {
@@ -155,10 +158,12 @@ impl NRFOrDummy {
     fn read(&mut self, res: &mut Vec<TelemetryData>, node: Node) {
         match self {
             NRFOrDummy::Working(nrf) => {
-                while let Some(_) = nrf.can_read().unwrap() {
+                //debug!("{:?}:{:?}", node, nrf);
+                if let Some(_) = nrf.can_read().unwrap() {
                     let payload = nrf.read().unwrap();
                     let data: &[u8] = &payload;
                     if data.len() > 0 {
+                        debug!("{:?}", data);
                         let data = TelemetryData::Frame(node, data.into());
                         res.push(data);
                     }
