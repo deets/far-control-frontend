@@ -88,7 +88,7 @@ pub mod colors {
 }
 
 mod helpers {
-    use epaint::Color32;
+
     use nom::{
         bytes::complete::{tag, take_while_m_n},
         character::is_hex_digit,

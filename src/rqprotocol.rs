@@ -1,6 +1,7 @@
 use std::{fmt::Display, ops::Range, time::Duration};
 
 use log::error;
+use serde::Serialize;
 
 use crate::{
     observables::{rqa::RawObservablesGroup, AdcGain},
@@ -43,6 +44,25 @@ pub enum Node {
     RedQueen(u8),  // RQ<X>
     Farduino(u8),  // FD<X>
     LaunchControl, // LNC
+}
+
+impl Serialize for Node {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Node::RedQueen(id) => {
+                let buf: [u8; 3] = [b'R', b'Q', *id];
+                unsafe { serializer.serialize_str(std::str::from_utf8_unchecked(&buf)) }
+            }
+            Node::Farduino(id) => {
+                let buf: [u8; 3] = [b'F', b'D', *id];
+                unsafe { serializer.serialize_str(std::str::from_utf8_unchecked(&buf)) }
+            }
+            Node::LaunchControl => serializer.serialize_str("LNC"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]

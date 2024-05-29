@@ -7,6 +7,13 @@ use control_frontend::{
 };
 use log::info;
 use nanomsg::{Protocol, Socket};
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct Message {
+    node: Node,
+    data: [u8; 32],
+}
 
 #[cfg(feature = "novaview")]
 fn main() -> anyhow::Result<()> {
@@ -41,8 +48,14 @@ fn main() -> anyhow::Result<()> {
     loop {
         telemetry.recv(|data| match data {
             control_frontend::telemetry::TelemetryData::Frame(node, data) => {
-                let _ = socket.nb_write(&data);
                 count += data.len() * 8;
+                let message = Message {
+                    node,
+                    data: data.try_into().unwrap(),
+                };
+                let j = serde_json::to_string(&message).unwrap();
+
+                let _ = socket.nb_write(&j.as_bytes());
             }
             control_frontend::telemetry::TelemetryData::NoModule(node) => {
                 println!("{:?} not connected", node);
