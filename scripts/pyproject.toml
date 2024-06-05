@@ -9,6 +9,7 @@ readme = "README.md"
 python = "^3.10"
 nanomsg = "^1.0"
 zmq = "^0.0.0"
+pyserial = "^3.5"
 
 
 [build-system]

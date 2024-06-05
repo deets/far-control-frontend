@@ -4,6 +4,9 @@ import json
 import zmq
 import logging
 import argparse
+import serial
+import threading
+import queue
 
 from nanomsg import Socket, PAIR, PUB
 
@@ -12,6 +15,28 @@ logger = logging.getLogger(__name__)
 
 RQ_FORMAT = "<BBIhhhhhhhhhff"
 RQ_SIZE = struct.calcsize(RQ_FORMAT)
+
+
+class SerialSocket:
+
+    def __init__(self, port):
+        self._conn = serial.Serial(port=port, baudrate=115200)
+        self._q = queue.Queue()
+        t = threading.Thread(target=self._reader)
+        t.daemon = True
+        t.start()
+
+    def _reader(self):
+        buffer = b""
+        while True:
+            line = self._conn.readline()
+            if line.startswith(b"###"):
+                data = list(bytes.fromhex(line[3:-2].decode("ascii")))
+                j = json.dumps(dict(node="RQB", data=data))
+                self._q.put(j)
+
+    def recv(self):
+        return self._q.get()
 
 
 class ClockTracker:
@@ -46,7 +71,13 @@ class MessageBuilder:
         self._socket = self._context.socket(zmq.PUB)
         self._socket.bind("tcp://0.0.0.0:{}".format(port))
 
-    def feed(self, now, node, seq, flags, timestamp, acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z, mag_x, mag_y, mag_z, pressure, temperature):
+    def feed(self, now, node, data):
+        seq, flags_and_message_type = data[:2]
+        if flags_and_message_type & 0x0f == 0:
+            values = struct.unpack(RQ_FORMAT, data[:RQ_SIZE])
+            self._feed_imu_messages(now, node, *values)
+
+    def _feed_imu_messages(self, now, node, seq, flags, timestamp, acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z, mag_x, mag_y, mag_z, pressure, temperature):
         mcu_timestamp = self._clock_tracker.feed(now, timestamp, seq)
 
         if node == self._node:
@@ -70,6 +101,7 @@ class MessageBuilder:
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--loglevel", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
+    parser.add_argument("--serial", help="If given a serial port, use that")
     return parser.parse_args()
 
 
@@ -78,16 +110,18 @@ def main():
     logging.basicConfig(
         level=getattr(logging, args.loglevel)
     )
-    socket = Socket(PAIR)
-    socket.connect('tcp://novaview.local:2424')
+    if args.serial:
+        socket = SerialSocket(args.serial)
+    else:
+        socket = Socket(PAIR)
+        socket.connect('tcp://novaview.local:2424')
     builder = MessageBuilder("RQB")
 
     while True:
         msg = json.loads(socket.recv())
         now = time.monotonic()
         node, data = msg["node"], bytes(msg["data"])
-        values = struct.unpack(RQ_FORMAT, data[:RQ_SIZE])
-        builder.feed(now, node, *values)
+        builder.feed(now, node, data)
 
 
 

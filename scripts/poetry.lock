@@ -86,6 +86,20 @@ files = [
 ]
 
 [[package]]
+name = "pyserial"
+version = "3.5"
+description = "Python Serial Port Extension"
+optional = false
+python-versions = "*"
+files = [
+    {file = "pyserial-3.5-py2.py3-none-any.whl", hash = "sha256:c4451db6ba391ca6ca299fb3ec7bae67a5c55dde170964c7a14ceefec02f2cf0"},
+    {file = "pyserial-3.5.tar.gz", hash = "sha256:3c77e014170dfffbd816e6ffc205e9842efb10be9f58ec16d3e8675b4925cddb"},
+]
+
+[package.extras]
+cp2110 = ["hidapi"]
+
+[[package]]
 name = "pyzmq"
 version = "26.0.3"
 description = "Python bindings for 0MQ"
@@ -202,4 +216,4 @@ pyzmq = "*"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "7fe4f3f8bace56cde2440db59fae58e67ae286913d49665c036b757095eb0d24"
+content-hash = "5332783f4a9bc05bcfab4ef1c545a6ef590c2e47e1149b297f26dbcb2db19b4f"
