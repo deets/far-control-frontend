@@ -1,4 +1,5 @@
 import time
+import enum
 import struct
 import json
 import zmq
@@ -15,6 +16,15 @@ logger = logging.getLogger(__name__)
 
 RQ_FORMAT = "<BBIhhhhhhhhhff"
 RQ_SIZE = struct.calcsize(RQ_FORMAT)
+
+
+class IgnitionState(enum.Enum):
+  RESET = 0
+  SECRET_A = 1
+  PYROS_UNLOCKED = 2
+  SECRET_AB = 3
+  IGNITION = 4
+  RADIO_SILENCE = 5
 
 
 class SerialSocket:
@@ -73,9 +83,14 @@ class MessageBuilder:
 
     def feed(self, now, node, data):
         seq, flags_and_message_type = data[:2]
-        if flags_and_message_type & 0x0f == 0:
+        message_type = flags_and_message_type & 0x0f
+        if message_type == 0:
             values = struct.unpack(RQ_FORMAT, data[:RQ_SIZE])
             self._feed_imu_messages(now, node, *values)
+        elif message_type == 1:
+            logger.debug("STATE PACKET")
+            logger.info(IgnitionState(data[6]))
+
 
     def _feed_imu_messages(self, now, node, seq, flags, timestamp, acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z, mag_x, mag_y, mag_z, pressure, temperature):
         mcu_timestamp = self._clock_tracker.feed(now, timestamp, seq)
