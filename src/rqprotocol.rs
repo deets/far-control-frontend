@@ -39,11 +39,29 @@ pub struct RqTimestamp {
     pub fractional: Duration,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Hash, Eq)]
 pub enum Node {
     RedQueen(u8),  // RQ<X>
     Farduino(u8),  // FD<X>
     LaunchControl, // LNC
+}
+
+impl std::fmt::Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RedQueen(arg0) => {
+                let a = [*arg0];
+                let id = std::str::from_utf8(&a).unwrap();
+                f.debug_tuple("RedQueen").field(&id).finish()
+            }
+            Self::Farduino(arg0) => {
+                let a = [*arg0];
+                let id = std::str::from_utf8(&a).unwrap();
+                f.debug_tuple("Farduino").field(&id).finish()
+            }
+            Self::LaunchControl => write!(f, "LaunchControl"),
+        }
+    }
 }
 
 impl Serialize for Node {
