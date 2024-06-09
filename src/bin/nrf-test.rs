@@ -20,29 +20,11 @@ struct Message {
 fn main() -> anyhow::Result<()> {
     use std::time::Duration;
 
+    use control_frontend::telemetry::DEFAULT_CONFIGURATION;
+
     simple_logger::init_with_env().unwrap();
     info!("NRF TEST");
-    let mut telemetry = setup_telemetry(
-        [
-            Config {
-                node: Node::RedQueen(b'B'),
-                channel: 0,
-            },
-            Config {
-                node: Node::RedQueen(b'T'),
-                channel: 125,
-            },
-            Config {
-                node: Node::Farduino(b'T'),
-                channel: 32,
-            },
-            Config {
-                node: Node::Farduino(b'B'),
-                channel: 64,
-            },
-        ]
-        .into_iter(),
-    )?;
+    let mut telemetry = setup_telemetry(DEFAULT_CONFIGURATION.into_iter())?;
 
     let mut socket = Socket::new(Protocol::Pair)?;
     socket.bind("tcp://0.0.0.0:2424")?;

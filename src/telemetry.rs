@@ -27,6 +27,25 @@ type NRFRx = RxMode<NRF24L01<CdevPinError, CEPin, NullPin, SpiWrapper>>;
 
 const PIPE_ADDRESS: &[u8] = b"RQARQ";
 
+pub const DEFAULT_CONFIGURATION: [Config; 4] = [
+    Config {
+        node: Node::RedQueen(b'B'),
+        channel: 0,
+    },
+    Config {
+        node: Node::RedQueen(b'T'),
+        channel: 125,
+    },
+    Config {
+        node: Node::Farduino(b'T'),
+        channel: 32,
+    },
+    Config {
+        node: Node::Farduino(b'B'),
+        channel: 64,
+    },
+];
+
 struct NullPin {}
 impl OutputPin for NullPin {
     type Error = CdevPinError;
