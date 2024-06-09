@@ -9,6 +9,7 @@ use log::info;
 use nanomsg::{Protocol, Socket};
 use serde::Serialize;
 
+#[cfg(feature = "novaview")]
 #[derive(Serialize)]
 struct Message {
     node: Node,
