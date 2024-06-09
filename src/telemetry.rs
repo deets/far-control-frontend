@@ -18,14 +18,17 @@ use linux_embedded_hal::{
     CdevPin, CdevPinError,
 };
 use log::{error, info, warn};
+use nanomsg::{Protocol, Socket};
+use serde::Serialize;
 
+use crate::common::NRFStatusReporter;
 use crate::rqprotocol::Node;
 
 type SpiError = embedded_nrf24l01::Error<std::io::Error>;
 type NRFStandby = StandbyMode<NRF24L01<CdevPinError, CEPin, NullPin, SpiWrapper>>;
 type NRFRx = RxMode<NRF24L01<CdevPinError, CEPin, NullPin, SpiWrapper>>;
 
-const PIPE_ADDRESS: &[u8] = b"RQARQ";
+const PIPE_ADDRESS: &[u8] = b"FARAF";
 
 pub const DEFAULT_CONFIGURATION: [Config; 4] = [
     Config {
@@ -353,6 +356,50 @@ pub fn setup_telemetry(configs: impl Iterator<Item = Config>) -> anyhow::Result<
         last_comms: HashMap::new(),
         registered_nodes,
     })
+}
+
+#[derive(Serialize)]
+pub struct Message {
+    pub node: Node,
+    pub data: [u8; 32],
+}
+
+pub struct TelemetryFrontend {
+    endpoint: TelemetryEndpoint,
+    socket: Socket,
+}
+
+impl NRFStatusReporter for TelemetryFrontend {
+    fn registered_nodes(&self) -> &Vec<Node> {
+        self.endpoint.registered_nodes()
+    }
+
+    fn heard_from_since(&self, node: &Node) -> Duration {
+        self.endpoint.heard_from_since(node)
+    }
+}
+
+impl TelemetryFrontend {
+    pub fn drive(&mut self) {
+        while self.endpoint.recv(|data| match data {
+            TelemetryData::Frame(node, data) => {
+                let message = Message {
+                    node,
+                    data: data.try_into().unwrap(),
+                };
+                let j = serde_json::to_string(&message).unwrap();
+                let _ = self.socket.nb_write(&j.as_bytes());
+            }
+            TelemetryData::NoModule(_) => {}
+        }) {}
+    }
+
+    pub fn new(uri: &str, configs: impl Iterator<Item = Config>) -> anyhow::Result<Self> {
+        let endpoint = setup_telemetry(configs)?;
+        let mut socket = Socket::new(Protocol::Pair)?;
+        socket.bind(uri)?;
+        Ok(Self { endpoint, socket })
+    }
 }
 
 #[cfg(test)]

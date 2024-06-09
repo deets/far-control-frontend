@@ -624,6 +624,25 @@ fn render_alive(ui: &mut Ui) {
     });
 }
 
+fn render_nrf_state(ui: &mut Ui, heard_of_since: Duration) {
+    let gradient = Gradient::new(vec![
+        LinSrgb::new(0.0, 1.0, 0.0),
+        LinSrgb::new(1.0, 1.0, 0.0),
+        LinSrgb::new(1.0, 0.0, 0.0),
+    ]);
+    let progress = match heard_of_since.as_secs() {
+        0..10 => heard_of_since.as_secs_f32() / 10.0,
+        _ => 1.0,
+    };
+
+    let color = color32(gradient.get(progress));
+    let rect = ui.spacing().interact_size;
+    let (_response, painter) = ui.allocate_painter(rect.into(), Sense::hover());
+    let center = painter.clip_rect().center();
+    painter.circle_filled(center, rect.y * 1.0 * 0.5, Color32::BLACK);
+    painter.circle_filled(center, rect.y * 0.8 * 0.5, color);
+}
+
 fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Model<C, Id>) {
     ui.horizontal(|ui| {
         if model.mode.is_failure() {
@@ -662,6 +681,22 @@ fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
         );
         if let Some(reset_countdown) = model.auto_reset_in() {
             ui.label(format!("Automatic reset in: {}", reset_countdown.as_secs()));
+        }
+        for node in model.nrf_status_reporter.borrow().registered_nodes() {
+            let heard_of_since = model.nrf_status_reporter.borrow().heard_from_since(node);
+            let name = match node {
+                crate::rqprotocol::Node::RedQueen(id) => {
+                    let buf = [b'R', b'Q', *id];
+                    unsafe { std::str::from_utf8_unchecked(&buf) }.to_string()
+                }
+                crate::rqprotocol::Node::Farduino(id) => {
+                    let buf = [b'F', b'D', *id];
+                    unsafe { std::str::from_utf8_unchecked(&buf) }.to_string()
+                }
+                crate::rqprotocol::Node::LaunchControl => "LNC".to_string(),
+            };
+            ui.label(name);
+            render_nrf_state(ui, heard_of_since);
         }
     });
 }

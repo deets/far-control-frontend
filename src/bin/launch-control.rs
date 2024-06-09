@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
 // hide console window on Windows in release
 #[cfg(feature = "novaview")]
 use std::sync::Arc;
@@ -8,6 +10,7 @@ use std::time::Instant;
 
 use clap::Parser;
 use control_frontend::args::ProgramArgs;
+use control_frontend::common::NRFStatusReporter;
 use control_frontend::connection::Connection;
 use control_frontend::consort::Consort;
 use control_frontend::input::InputEvent;
@@ -60,6 +63,8 @@ fn serial_port_path() -> Option<String> {
 
 #[cfg(feature = "eframe")]
 fn main() -> Result<(), eframe::Error> {
+    use control_frontend::common::FakeNRFStatusReporter;
+
     simple_logger::init_with_env().unwrap();
 
     let id_generator = SharedIdGenerator::default();
@@ -82,7 +87,7 @@ fn main() -> Result<(), eframe::Error> {
         recorder,
     )
     .unwrap();
-
+    let nrf_status_reporter = Rc::new(RefCell::new(FakeNRFStatusReporter::default()));
     eframe::run_native(
         "Launch Control",
         options,
@@ -92,6 +97,7 @@ fn main() -> Result<(), eframe::Error> {
                 conn,
                 args,
                 recorder_path,
+                nrf_status_reporter,
             ))
         }),
     )
@@ -106,7 +112,13 @@ where
 }
 
 impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
-    fn new(id_generator: Id, conn: C, args: ProgramArgs, recorder_path: Option<PathBuf>) -> Self {
+    fn new(
+        id_generator: Id,
+        conn: C,
+        args: ProgramArgs,
+        recorder_path: Option<PathBuf>,
+        nrf_status_reporter: Rc<RefCell<dyn NRFStatusReporter>>,
+    ) -> Self {
         let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
         let start_time = Instant::now();
 
@@ -125,6 +137,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
             &AdcGain::Gain32,
             args.start_with_launch_control,
             recorder_path,
+            nrf_status_reporter,
         );
 
         Self { model }
@@ -344,6 +357,7 @@ impl JoystickProcessor {
 
 #[cfg(feature = "novaview")]
 fn run() -> anyhow::Result<()> {
+    use control_frontend::telemetry::{TelemetryFrontend, DEFAULT_CONFIGURATION};
     use sd_notify::NotifyState;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -359,7 +373,11 @@ fn run() -> anyhow::Result<()> {
         recorder,
     )
     .unwrap();
-    let mut app = LaunchControlApp::new(id_generator, conn, args, None);
+    let telemetry_frontend = Rc::new(RefCell::new(TelemetryFrontend::new(
+        "tcp://0.0.0.0:2424",
+        DEFAULT_CONFIGURATION.into_iter(),
+    )?));
+    let mut app = LaunchControlApp::new(id_generator, conn, args, None, telemetry_frontend.clone());
 
     // Initialize sdl
     let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;
@@ -423,6 +441,7 @@ fn run() -> anyhow::Result<()> {
         platform.update_time(start_time.elapsed().as_secs_f64());
         let ctx = platform.context();
         mouse.show_cursor(false);
+        telemetry_frontend.borrow_mut().drive();
         app.update(&input_events, &ctx);
 
         // Stop drawing the egui frame and get the full output

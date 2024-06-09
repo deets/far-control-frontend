@@ -10,17 +10,10 @@ use nanomsg::{Protocol, Socket};
 use serde::Serialize;
 
 #[cfg(feature = "novaview")]
-#[derive(Serialize)]
-struct Message {
-    node: Node,
-    data: [u8; 32],
-}
-
-#[cfg(feature = "novaview")]
 fn main() -> anyhow::Result<()> {
     use std::time::Duration;
 
-    use control_frontend::telemetry::DEFAULT_CONFIGURATION;
+    use control_frontend::telemetry::{Message, DEFAULT_CONFIGURATION};
 
     simple_logger::init_with_env().unwrap();
     info!("NRF TEST");

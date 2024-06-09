@@ -5,12 +5,14 @@ use ringbuffer::{AllocRingBuffer, RingBuffer};
 #[cfg(not(test))]
 use std::time::Instant;
 
+use std::{cell::RefCell, rc::Rc};
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
+use crate::common::NRFStatusReporter;
 use crate::{
     connection::{Answers, Connection},
     consort::{Consort, SimpleIdGenerator},
@@ -20,7 +22,7 @@ use crate::{
         AdcGain,
     },
     rqparser::MAX_BUFFER_SIZE,
-    rqprotocol::{Command, Response},
+    rqprotocol::{Command, Node, Response},
 };
 
 const AUTO_RESET_TIMEOUT: Duration = Duration::from_secs(120);
@@ -147,6 +149,7 @@ where
     pub established_connection_at: Option<Instant>,
     pub adc_gain: AdcGain,
     pub recorder_path: Option<PathBuf>,
+    pub nrf_status_reporter: Rc<RefCell<dyn NRFStatusReporter>>,
 }
 
 pub trait StateProcessing {
@@ -986,6 +989,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
         gain: &AdcGain,
         start_with_launch_control: bool,
         recorder_path: Option<PathBuf>,
+        nrf_status_reporter: Rc<RefCell<dyn NRFStatusReporter>>,
     ) -> Self {
         Self {
             mode: if start_with_launch_control {
@@ -1005,6 +1009,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             established_connection_at: None,
             adc_gain: gain.clone(),
             recorder_path,
+            nrf_status_reporter,
         }
     }
 
