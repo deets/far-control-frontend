@@ -68,7 +68,7 @@ fn main() -> Result<(), eframe::Error> {
     simple_logger::init_with_env().unwrap();
 
     let id_generator = SharedIdGenerator::default();
-    let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
+    let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'B'));
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(SCREEN_WIDTH as f32, SCREEN_HEIGHT as f32)),
         ..Default::default()
@@ -119,7 +119,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
         recorder_path: Option<PathBuf>,
         nrf_status_reporter: Rc<RefCell<dyn NRFStatusReporter>>,
     ) -> Self {
-        let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
+        let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'B'));
         let start_time = Instant::now();
 
         let consort =
@@ -363,7 +363,7 @@ fn run() -> anyhow::Result<()> {
 
     simple_logger::init_with_env().unwrap();
     let id_generator = SharedIdGenerator::default();
-    let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'A'));
+    let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'B'));
     let args = ProgramArgs::parse();
     let recorder = Recorder::new(None);
     let conn = E32Connection::new(
