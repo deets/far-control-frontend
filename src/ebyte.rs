@@ -134,6 +134,7 @@ impl Connection for E32Connection {
 
 impl Drop for E32Connection {
     fn drop(&mut self) {
+        info!("dropping E32Connection");
         self.quit();
     }
 }
@@ -366,9 +367,8 @@ pub fn modem_baud_rate() -> BaudRate {
 
 #[cfg(feature = "novaview")]
 fn create(port: &str, parameters: Parameters) -> anyhow::Result<E32Module> {
-    use std::path::PathBuf;
-
     use linux_embedded_hal::gpio_cdev::Chip;
+    use std::path::PathBuf;
 
     let baud_rate = modem_baud_rate();
     let stop_bits = StopBits::Stop1;
@@ -387,7 +387,6 @@ fn create(port: &str, parameters: Parameters) -> anyhow::Result<E32Module> {
     port.configure(&config_settings)?;
     port.set_timeout(ANSWER_TIMEOUT)?;
     let serial = Serial::new(Rc::new(RefCell::new(port)));
-
     let mut chip = Chip::new::<PathBuf>("/dev/gpiochip0".into())?;
     debug!("GPIO opened");
     let aux = CtsAux::new(&mut chip)?;
@@ -398,8 +397,8 @@ fn create(port: &str, parameters: Parameters) -> anyhow::Result<E32Module> {
     debug!("GPIO M1 allocated");
     let delay = StandardDelay {};
     debug!("GPIO lines allocated");
-    //serial.configure(&comms_settings);
     let mut module = Ebyte::new(serial, aux, m0, m1, delay)?;
+    debug!("Created module");
     configure(&mut module, &parameters)?;
     Ok(module)
 }
@@ -440,7 +439,9 @@ fn create(port: &str, parameters: Parameters) -> anyhow::Result<E32Module> {
 
 fn configure(module: &mut E32Module, parameters: &Parameters) -> anyhow::Result<()> {
     // Cargo-cultish, but it appears I need to read once first.
+    debug!("before parameters read");
     let _ = module.parameters()?;
+    debug!("parameters read");
     for i in 0..10 {
         module.set_parameters(parameters, ebyte_e32::parameters::Persistence::Permanent)?;
         let active = module.parameters()?;
