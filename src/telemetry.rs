@@ -223,6 +223,7 @@ pub struct TelemetryEndpoint {
     running: Arc<Mutex<bool>>,
     start: Instant,
     last_comms: HashMap<Node, Instant>,
+    registered_nodes: Vec<Node>,
 }
 
 impl TelemetryEndpoint {
@@ -248,11 +249,16 @@ impl TelemetryEndpoint {
     }
 
     pub fn heard_from_since(&self, node: &Node) -> Duration {
-        if self.last_comms.contains_key(node) {
-            Instant::now() - self.last_comms[node]
-        } else {
-            Duration::from_secs(3600)
-        }
+        Instant::now()
+            - if self.last_comms.contains_key(node) {
+                self.last_comms[node]
+            } else {
+                self.start
+            }
+    }
+
+    pub fn registered_nodes(&self) -> &Vec<Node> {
+        &self.registered_nodes
     }
 
     fn quit(&mut self) {
@@ -297,6 +303,7 @@ fn work(
 
 pub fn setup_telemetry(configs: impl Iterator<Item = Config>) -> anyhow::Result<TelemetryEndpoint> {
     let mut chip = Chip::new::<PathBuf>("/dev/gpiochip0".into())?;
+    let mut registered_nodes = vec![];
     let nrf_modules = enumerate_nrf_modules(&mut chip).collect::<Vec<NRFEntry>>();
     let configs = configs.collect::<Vec<Config>>();
     if nrf_modules.len() < configs.len() {
@@ -308,6 +315,7 @@ pub fn setup_telemetry(configs: impl Iterator<Item = Config>) -> anyhow::Result<
     }
     let mut connections = vec![];
     for (config, nrf) in configs.into_iter().zip(nrf_modules.into_iter()) {
+        registered_nodes.push(config.node.clone());
         let conn = TelemetryConnection::new(config, nrf);
         connections.push(conn);
     }
@@ -324,6 +332,7 @@ pub fn setup_telemetry(configs: impl Iterator<Item = Config>) -> anyhow::Result<
         running,
         start: Instant::now(),
         last_comms: HashMap::new(),
+        registered_nodes,
     })
 }
 

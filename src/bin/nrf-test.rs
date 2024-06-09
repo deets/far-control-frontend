@@ -64,7 +64,7 @@ fn main() -> anyhow::Result<()> {
                 println!("{:.3}kb/s", kbps);
             }
         }) {}
-        for node in [Node::RedQueen(b'B'), Node::RedQueen(b'T')] {
+        for node in telemetry.registered_nodes() {
             println!(
                 "last heard of {:?}: {:?}",
                 &node,
