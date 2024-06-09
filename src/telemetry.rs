@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::io::Empty;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -15,7 +17,7 @@ use linux_embedded_hal::{
     spidev::{SpiModeFlags, Spidev, SpidevOptions},
     CdevPin, CdevPinError,
 };
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 
 use crate::rqprotocol::Node;
 
@@ -158,12 +160,10 @@ impl NRFOrDummy {
     fn read(&mut self, res: &mut Vec<TelemetryData>, node: Node) {
         match self {
             NRFOrDummy::Working(nrf) => {
-                //debug!("{:?}:{:?}", node, nrf);
                 if let Some(_) = nrf.can_read().unwrap() {
                     let payload = nrf.read().unwrap();
                     let data: &[u8] = &payload;
                     if data.len() > 0 {
-                        debug!("{:?}", data);
                         let data = TelemetryData::Frame(node, data.into());
                         res.push(data);
                     }
@@ -221,18 +221,37 @@ pub struct TelemetryEndpoint {
     worker: Option<JoinHandle<()>>,
     command_receiver: Receiver<TelemetryData>,
     running: Arc<Mutex<bool>>,
+    start: Instant,
+    last_comms: HashMap<Node, Instant>,
 }
 
 impl TelemetryEndpoint {
-    pub fn recv(&mut self, mut callback: impl FnMut(TelemetryData)) {
-        match self.command_receiver.recv() {
+    pub fn recv(&mut self, mut callback: impl FnMut(TelemetryData)) -> bool {
+        let mut received_something = false;
+        match self.command_receiver.try_recv() {
             Ok(data) => {
+                if let TelemetryData::Frame(node, _) = data {
+                    self.last_comms.insert(node, Instant::now());
+                }
+                received_something = true;
                 callback(data);
             }
-            Err(err) => {
-                error!("Can't read from cb channel: {:?}", err);
-                panic!();
-            }
+            Err(err) => match err {
+                crossbeam_channel::TryRecvError::Empty => {}
+                crossbeam_channel::TryRecvError::Disconnected => {
+                    error!("Can't read from cb channel: {:?}", err);
+                    panic!();
+                }
+            },
+        }
+        received_something
+    }
+
+    pub fn heard_from_since(&self, node: &Node) -> Duration {
+        if self.last_comms.contains_key(node) {
+            Instant::now() - self.last_comms[node]
+        } else {
+            Duration::from_secs(3600)
         }
     }
 
@@ -303,6 +322,8 @@ pub fn setup_telemetry(configs: impl Iterator<Item = Config>) -> anyhow::Result<
         command_receiver,
         worker: Some(handle),
         running,
+        start: Instant::now(),
+        last_comms: HashMap::new(),
     })
 }
 
