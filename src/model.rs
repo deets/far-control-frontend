@@ -438,7 +438,7 @@ impl StateProcessing for ObservablesMode {
 
     fn process_response(&self, response: Response) -> Self::State {
         match self {
-            ObservablesMode::Failure => todo!(),
+            ObservablesMode::Failure => Self::State::Start,
             ObservablesMode::Reset => match response {
                 Response::ResetAck => Self::State::Idle,
                 _ => Self::State::Start,
