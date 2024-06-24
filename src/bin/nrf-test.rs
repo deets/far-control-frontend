@@ -6,6 +6,7 @@ use control_frontend::{
     telemetry::{setup_telemetry, Config},
 };
 use log::info;
+#[cfg(feature = "novaview")]
 use nanomsg::{Protocol, Socket};
 use serde::Serialize;
 

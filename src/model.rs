@@ -22,7 +22,7 @@ use crate::{
         AdcGain,
     },
     rqparser::MAX_BUFFER_SIZE,
-    rqprotocol::{Command, Node, Response},
+    rqprotocol::{Command, Response},
 };
 
 const AUTO_RESET_TIMEOUT: Duration = Duration::from_secs(120);
