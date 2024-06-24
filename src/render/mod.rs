@@ -9,12 +9,27 @@ use crate::connection::Connection;
 use crate::ebyte::modem_baud_rate;
 use crate::layout::colors::{color32, kind_color, kind_color32, Intensity, Kind};
 use crate::model::{ControlArea, LaunchControlMode, Mode, Model, StateProcessing};
-use crate::observables::rqa::{ObservablesGroup2, PyroStatus};
 use crate::observables::AdcGain;
 
-use self::rqa::render_observables;
+#[cfg(feature = "test-stand")]
+use crate::observables::rqa as rqobs;
 
+#[cfg(feature = "rocket")]
+use crate::observables::rqb as rqobs;
+
+use rqobs::ObservablesGroup2;
+
+#[cfg(feature = "test-stand")]
 pub mod rqa;
+#[cfg(feature = "rocket")]
+pub mod rqb;
+
+#[cfg(feature = "test-stand")]
+use self::rqa as rq_render;
+#[cfg(feature = "rocket")]
+use self::rqb as rq_render;
+
+use self::rq_render::{render_observables, render_pyro_state};
 
 // fn split_rect_horizontally_at(rect: &Rect, split: f32) -> (Rect, Rect) {
 //     let lt = rect.left_top();
@@ -241,25 +256,6 @@ fn vbb_from_obg2(obg2: &Option<ObservablesGroup2>) -> String {
         Some(obg2) => format!("{:03.2}", obg2.vbb_voltage),
         None => "--.--".into(),
     }
-}
-
-fn render_pyro_state(ui: &mut Ui, pyro_status: Option<PyroStatus>, height: f32) {
-    let rect = Vec2::new(ui.available_width(), height);
-    let (_response, painter) = ui.allocate_painter(rect.into(), Sense::hover());
-    let center = painter.clip_rect().center();
-    painter.circle_filled(center, height * 1.0 * 0.5, Color32::BLACK);
-    painter.circle_filled(
-        center,
-        height * 0.9 * 0.5,
-        match pyro_status {
-            Some(pyro_status) => match pyro_status {
-                PyroStatus::Unknown => Color32::DARK_GRAY,
-                PyroStatus::Open => Color32::RED,
-                PyroStatus::Closed => Color32::GREEN,
-            },
-            None => Color32::DARK_GRAY,
-        },
-    );
 }
 
 fn render_launch_control_powerstate(ui: &mut Ui, obg2: &Option<ObservablesGroup2>) {

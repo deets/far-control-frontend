@@ -16,7 +16,6 @@ pub struct RawObservablesGroup1 {
 pub struct RawObservablesGroup2 {
     pub vbb_voltage: u16,
     pub pyro_status: u8,
-    pub records: u32,
 }
 
 #[derive(Clone, PartialEq, Debug)]

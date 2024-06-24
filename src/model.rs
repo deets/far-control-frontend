@@ -12,15 +12,20 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "test-stand")]
+use crate::observables::rqa as rqobs;
+
+#[cfg(feature = "rocket")]
+use crate::observables::rqb as rqobs;
+
+use rqobs::{ObservablesGroup1, ObservablesGroup2, RawObservablesGroup, SystemDefinition};
+
 use crate::common::NRFStatusReporter;
 use crate::{
     connection::{Answers, Connection},
     consort::{Consort, SimpleIdGenerator},
     input::InputEvent,
-    observables::{
-        rqa::{ObservablesGroup1, ObservablesGroup2, RawObservablesGroup, SystemDefinition},
-        AdcGain,
-    },
+    observables::AdcGain,
     rqparser::MAX_BUFFER_SIZE,
     rqprotocol::{Command, Response},
 };

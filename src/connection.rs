@@ -1,4 +1,10 @@
-use crate::observables::rqa::RawObservablesGroup;
+#[cfg(feature = "test-stand")]
+use crate::observables::rqa as rqobs;
+
+#[cfg(feature = "rocket")]
+use crate::observables::rqb as rqobs;
+
+use rqobs::RawObservablesGroup;
 
 #[derive(Debug, PartialEq)]
 pub enum Answers {

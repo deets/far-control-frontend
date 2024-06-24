@@ -6,7 +6,7 @@ use nom::{branch::alt, bytes::complete::tag, sequence::tuple, IResult};
 
 use crate::{
     observables::{
-        rqa::{RawObservablesGroup, RawObservablesGroup1, RawObservablesGroup2},
+        rqb::{RawObservablesGroup, RawObservablesGroup1, RawObservablesGroup2},
         Ads1256Reading, ClkFreq, Timestamp,
     },
     rqprotocol::Node,
@@ -47,43 +47,14 @@ fn obg1_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObservablesGro
 }
 
 fn obg2_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObservablesGroup)> {
-    // RQAOBG,123,LNC,2,R,FOOBAR.TXT,000000FF,12345678,ABCD,22
-    let (
-        rest,
-        (
-            source,
-            _,
-            command_id,
-            _,
-            recipient,
-            _,
-            state,
-            _,
-            filename_or_error,
-            _,
-            anomalies,
-            _,
-            records,
-            _,
-            vbb_voltage,
-            _,
-            pyro_status,
-        ),
-    ) = tuple((
+    // RQAOBG,123,LNC,2,ABCD,22
+    let (rest, (source, _, command_id, _, recipient, _, vbb_voltage, _, pyro_status)) = tuple((
         node_parser,
         tag(b"OBG,"),
         command_id_parser,
         tag(b","),
         node_parser,
         tag(",2,"),
-        alt((tag("E"), tag("P"), tag("U"), tag("R"))),
-        tag(","),
-        string_parser,
-        tag(","),
-        hex_u32_parser,
-        tag(","),
-        hex_u32_parser,
-        tag(","),
         hex_u16_parser,
         tag(","),
         hex_u8_parser,
@@ -95,12 +66,8 @@ fn obg2_parser(s: &[u8]) -> IResult<&[u8], (Node, usize, Node, RawObservablesGro
             command_id,
             recipient,
             RawObservablesGroup::OG2(RawObservablesGroup2 {
-                state: state[0],
-                filename_or_error,
-                anomalies,
                 vbb_voltage,
                 pyro_status,
-                records,
             }),
         ),
     ))

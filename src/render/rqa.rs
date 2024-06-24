@@ -53,6 +53,25 @@ fn render_recording_state(ui: &mut Ui, recording_state: &RecordingState) {
     ui.label(RichText::new(text).heading().color(color));
 }
 
+pub fn render_pyro_state(ui: &mut Ui, pyro_status: Option<PyroStatus>, height: f32) {
+    let rect = Vec2::new(ui.available_width(), height);
+    let (_response, painter) = ui.allocate_painter(rect.into(), Sense::hover());
+    let center = painter.clip_rect().center();
+    painter.circle_filled(center, height * 1.0 * 0.5, Color32::BLACK);
+    painter.circle_filled(
+        center,
+        height * 0.9 * 0.5,
+        match pyro_status {
+            Some(pyro_status) => match pyro_status {
+                PyroStatus::Unknown => Color32::DARK_GRAY,
+                PyroStatus::Open => Color32::RED,
+                PyroStatus::Closed => Color32::GREEN,
+            },
+            None => Color32::DARK_GRAY,
+        },
+    );
+}
+
 pub fn render_observables(
     ui: &mut Ui,
     obg1: &Vec<ObservablesGroup1>,

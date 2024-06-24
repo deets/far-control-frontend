@@ -3,12 +3,22 @@ use std::{fmt::Display, ops::Range, time::Duration};
 use log::error;
 use serde::Serialize;
 
+#[cfg(feature = "test-stand")]
+use crate::observables::rqa::RawObservablesGroup;
+#[cfg(feature = "test-stand")]
+use crate::rqparser::rqa::obg_parser;
+
+#[cfg(feature = "rocket")]
+use crate::observables::rqb::RawObservablesGroup;
+#[cfg(feature = "rocket")]
+use crate::rqparser::rqb::obg_parser;
+
 use crate::{
-    observables::{rqa::RawObservablesGroup, AdcGain},
+    observables::AdcGain,
     rqparser::{
         ack_parser, command_parser, nibble_to_hex, one_hex_return_value_parser,
-        one_usize_return_value_parser, rqa::rqa_obg_parser, two_return_values_parser,
-        verify_nmea_format, NMEAFormatError, NMEAFormatter, MAX_BUFFER_SIZE,
+        one_usize_return_value_parser, two_return_values_parser, verify_nmea_format,
+        NMEAFormatError, NMEAFormatter, MAX_BUFFER_SIZE,
     },
 };
 
@@ -173,7 +183,7 @@ impl Command {
         transaction: &Transaction,
         contents: &[u8],
     ) -> Result<(TransactionState, Response), Error> {
-        match rqa_obg_parser(contents) {
+        match obg_parser(contents) {
             Ok((_rest, (_source, _command_id, _sender, raw))) => {
                 // TODO: a lot of checking!
                 Ok((TransactionState::Alive, Response::ObservableGroup(raw)))

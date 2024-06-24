@@ -13,7 +13,10 @@ use nom::{
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 use std::time::Duration;
 
+#[cfg(feature = "test-stand")]
 pub mod rqa;
+#[cfg(feature = "rocket")]
+pub mod rqb;
 
 const START_DELIMITER: u8 = b'$';
 const CHECKSUM_DELIMITER: u8 = b'*';

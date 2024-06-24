@@ -36,7 +36,9 @@ pub enum AdcGain {
     Gain64,
 }
 
+#[cfg(feature = "test-stand")]
 pub mod rqa;
+#[cfg(feature = "rocket")]
 pub mod rqb;
 
 impl Timestamp {
