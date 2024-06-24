@@ -9,8 +9,6 @@ import serial
 import threading
 import queue
 
-from nanomsg import Socket, PAIR, PUB
-
 logger = logging.getLogger(__name__)
 
 
@@ -72,12 +70,12 @@ class ClockTracker:
 
 class MessageBuilder:
 
-    def __init__(self, node, port=9872):
+    def __init__(self, node, context, port=9872):
         self._clock_tracker = ClockTracker()
         self._node = node
         self._a = None
         self._b = None
-        self._context = zmq.Context()
+        self._context = context
         self._socket = self._context.socket(zmq.PUB)
         self._socket.bind("tcp://0.0.0.0:{}".format(port))
 
@@ -121,6 +119,7 @@ def parse_args():
 
 
 def main():
+    context = zmq.Context()
     args = parse_args()
     logging.basicConfig(
         level=getattr(logging, args.loglevel)
@@ -128,9 +127,10 @@ def main():
     if args.serial:
         socket = SerialSocket(args.serial)
     else:
-        socket = Socket(PAIR)
+        socket = context.socket(zmq.SUB)
+        socket.setsockopt(zmq.SUBSCRIBE, b'')
         socket.connect('tcp://novaview.local:2424')
-    builder = MessageBuilder("RQB")
+    builder = MessageBuilder("RQB", context)
 
     while True:
         msg = json.loads(socket.recv())

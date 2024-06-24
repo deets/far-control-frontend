@@ -6,9 +6,9 @@ use control_frontend::{
     telemetry::{setup_telemetry, Config},
 };
 use log::info;
-#[cfg(feature = "novaview")]
-use nanomsg::{Protocol, Socket};
 use serde::Serialize;
+#[cfg(feature = "novaview")]
+use zmq::{Context, Socket};
 
 #[cfg(feature = "novaview")]
 fn main() -> anyhow::Result<()> {
@@ -20,7 +20,8 @@ fn main() -> anyhow::Result<()> {
     info!("NRF TEST");
     let mut telemetry = setup_telemetry(DEFAULT_CONFIGURATION.into_iter())?;
 
-    let mut socket = Socket::new(Protocol::Pair)?;
+    let context = Context::new();
+    let mut socket = context.socket(zmq::PUB)?;
     socket.bind("tcp://0.0.0.0:2424")?;
     let mut count = 0;
     let start = Instant::now();
@@ -33,7 +34,7 @@ fn main() -> anyhow::Result<()> {
                     data: data.try_into().unwrap(),
                 };
                 let j = serde_json::to_string(&message).unwrap();
-                let _ = socket.nb_write(&j.as_bytes());
+                let _ = socket.send(&j.as_bytes(), 0);
             }
             control_frontend::telemetry::TelemetryData::NoModule(node) => {
                 println!("{:?} not connected", node);

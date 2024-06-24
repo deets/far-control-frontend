@@ -12,7 +12,7 @@ license-file = "LICENSE"
 #default = ["e32", "novaview", "rocket"]
 default = ["e32", "eframe", "rocket"]
 e32 = ["dep:ebyte-e32", "dep:ebyte-e32-ftdi"]
-novaview = ["dep:egui_sdl2_platform", "dep:linux-embedded-hal", "dep:embedded-nrf24l01", "dep:sd-notify", "dep:signal-hook", "dep:nanomsg"]
+novaview = ["dep:egui_sdl2_platform", "dep:linux-embedded-hal", "dep:embedded-nrf24l01", "dep:sd-notify", "dep:signal-hook"]
 eframe = ["dep:eframe"]
 test-stand = []
 rocket = []
@@ -50,7 +50,7 @@ linux-embedded-hal = { version = "0.4", features = ["gpio_cdev"], optional=true 
 embedded-nrf24l01 = { path = "./modules/embedded-nrf24l01", optional=true , version="=0.2.0"}
 clap = { version = "3.2.25", features = ["derive"] }
 chrono = "0.4.38"
-nanomsg = { version = "0.7.2", features = ["bundled"], optional=true }
+zmq = { version = "0.10.0"}
 sd-notify = { version = "0.4.1", optional=true }
 signal-hook = {version = "0.3.17", optional=true }
 serde = { version = "1.0", features = ["derive"] }

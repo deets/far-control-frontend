@@ -18,8 +18,8 @@ use linux_embedded_hal::{
     CdevPin, CdevPinError,
 };
 use log::{error, info, warn};
-use nanomsg::{Protocol, Socket};
 use serde::Serialize;
+use zmq::{Context, Socket};
 
 use crate::common::NRFStatusReporter;
 use crate::rqprotocol::Node;
@@ -366,6 +366,7 @@ pub struct Message {
 
 pub struct TelemetryFrontend {
     endpoint: TelemetryEndpoint,
+    context: Context,
     socket: Socket,
 }
 
@@ -388,7 +389,7 @@ impl TelemetryFrontend {
                     data: data.try_into().unwrap(),
                 };
                 let j = serde_json::to_string(&message).unwrap();
-                let _ = self.socket.nb_write(&j.as_bytes());
+                let _ = self.socket.send(&j.as_bytes(), 0);
             }
             TelemetryData::NoModule(_) => {}
         }) {}
@@ -396,15 +397,19 @@ impl TelemetryFrontend {
 
     pub fn new(uri: &str, configs: impl Iterator<Item = Config>) -> anyhow::Result<Self> {
         let endpoint = setup_telemetry(configs)?;
-        let mut socket = Socket::new(Protocol::Pair)?;
+        let context = Context::new();
+        let socket = context.socket(zmq::PUB)?;
         socket.bind(uri)?;
-        Ok(Self { endpoint, socket })
+        Ok(Self {
+            endpoint,
+            context,
+            socket,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     struct MessageParser {
         buffer: Vec<u8>,
