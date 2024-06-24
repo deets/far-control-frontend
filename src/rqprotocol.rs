@@ -7,7 +7,7 @@ use crate::{
     observables::{rqa::RawObservablesGroup, AdcGain},
     rqparser::{
         ack_parser, command_parser, nibble_to_hex, one_hex_return_value_parser,
-        one_usize_return_value_parser, rqa_obg_parser, two_return_values_parser,
+        one_usize_return_value_parser, rqa::rqa_obg_parser, two_return_values_parser,
         verify_nmea_format, NMEAFormatError, NMEAFormatter, MAX_BUFFER_SIZE,
     },
 };
