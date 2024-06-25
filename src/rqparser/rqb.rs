@@ -1,6 +1,6 @@
 use super::{
     command_id_parser, hex_i32_parser, hex_u16_parser, hex_u32_parser, hex_u64_parser,
-    hex_u8_parser, node_parser, string_parser,
+    hex_u8_parser, node_parser,
 };
 use nom::{branch::alt, bytes::complete::tag, sequence::tuple, IResult};
 

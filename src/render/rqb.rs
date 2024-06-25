@@ -62,7 +62,7 @@ pub fn render_pyro_state(ui: &mut Ui, pyro_status: Option<PyroStatus>, height: f
 pub fn render_observables(
     ui: &mut Ui,
     obg1: &Vec<ObservablesGroup1>,
-    obg2: &Option<ObservablesGroup2>,
+    _obg2: &Option<ObservablesGroup2>,
 ) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {

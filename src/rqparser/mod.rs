@@ -207,11 +207,13 @@ pub fn nibble_to_hex(nibble: u8) -> u8 {
     }
 }
 
+#[allow(dead_code)]
 fn timestamp_unit(s: &[u8]) -> IResult<&[u8], u8> {
     let (rest, out) = take_while_m_n(2, 2, is_digit)(s)?;
     Ok((rest, (out[0] - 48) * 10 + out[1] - 48))
 }
 
+#[allow(dead_code)]
 fn timestamp_prefix(s: &[u8]) -> IResult<&[u8], (Option<u8>, Option<u8>, u8)> {
     let (rest, count) = many1_count(timestamp_unit)(s)?;
     let prefix = &s[0..count * 2];

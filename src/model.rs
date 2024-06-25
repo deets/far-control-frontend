@@ -20,7 +20,6 @@ use crate::observables::rqb as rqobs;
 
 use rqobs::{ObservablesGroup1, ObservablesGroup2, RawObservablesGroup, SystemDefinition};
 
-use crate::common::NRFStatusReporter;
 use crate::{
     connection::{Answers, Connection},
     consort::{Consort, SimpleIdGenerator},
@@ -28,6 +27,7 @@ use crate::{
     observables::AdcGain,
     rqparser::MAX_BUFFER_SIZE,
     rqprotocol::{Command, Response},
+    telemetry::NRFConnector,
 };
 
 const AUTO_RESET_TIMEOUT: Duration = Duration::from_secs(120);
@@ -154,7 +154,7 @@ where
     pub established_connection_at: Option<Instant>,
     pub adc_gain: AdcGain,
     pub recorder_path: Option<PathBuf>,
-    pub nrf_status_reporter: Rc<RefCell<dyn NRFStatusReporter>>,
+    pub nrf_connector: Rc<RefCell<dyn NRFConnector>>,
 }
 
 pub trait StateProcessing {
@@ -994,7 +994,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
         gain: &AdcGain,
         start_with_launch_control: bool,
         recorder_path: Option<PathBuf>,
-        nrf_status_reporter: Rc<RefCell<dyn NRFStatusReporter>>,
+        nrf_connector: Rc<RefCell<dyn NRFConnector>>,
     ) -> Self {
         Self {
             mode: if start_with_launch_control {
@@ -1014,7 +1014,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             established_connection_at: None,
             adc_gain: gain.clone(),
             recorder_path,
-            nrf_status_reporter,
+            nrf_connector,
         }
     }
 

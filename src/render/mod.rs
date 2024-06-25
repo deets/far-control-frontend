@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use egui::epaint::Shadow;
 use egui::{vec2, Align2, Color32, FontId, Frame, Id, ProgressBar, RichText, Sense, Stroke, Ui};
-use emath::{pos2, Pos2, Vec2};
+use emath::{pos2, Pos2};
 use palette::{Gradient, LinSrgb};
 
 use crate::connection::Connection;
@@ -457,8 +457,8 @@ fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
         if let Some(reset_countdown) = model.auto_reset_in() {
             ui.label(format!("Automatic reset in: {}", reset_countdown.as_secs()));
         }
-        for node in model.nrf_status_reporter.borrow().registered_nodes() {
-            let heard_of_since = model.nrf_status_reporter.borrow().heard_from_since(node);
+        for node in model.nrf_connector.borrow().registered_nodes() {
+            let heard_of_since = model.nrf_connector.borrow().heard_from_since(node);
             let name = match node {
                 crate::rqprotocol::Node::RedQueen(id) => {
                     let buf = [b'R', b'Q', *id];

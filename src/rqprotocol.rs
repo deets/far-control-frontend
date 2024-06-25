@@ -1,7 +1,7 @@
 use std::{fmt::Display, ops::Range, time::Duration};
 
 use log::error;
-use serde::Serialize;
+use serde::{de::Visitor, Deserialize, Serialize};
 
 #[cfg(feature = "test-stand")]
 use crate::observables::rqa::RawObservablesGroup;
@@ -90,6 +90,45 @@ impl Serialize for Node {
             }
             Node::LaunchControl => serializer.serialize_str("LNC"),
         }
+    }
+}
+
+struct NodeVisitor;
+
+impl<'de> Visitor<'de> for NodeVisitor {
+    type Value = Node;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("RQx, FDx or LNC")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match v.len() {
+            3 => match &v[0..2] {
+                "RQ" => Ok(Node::RedQueen(v.as_bytes()[2])),
+                "FD" => Ok(Node::Farduino(v.as_bytes()[2])),
+                _ => {
+                    if v == "LNC" {
+                        Ok(Node::LaunchControl)
+                    } else {
+                        Err(E::custom(format!("Unknown node identifier '{}'", v)))
+                    }
+                }
+            },
+            _ => Err(E::custom(format!("Unknown node identifier '{}'", v))),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Node {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(NodeVisitor)
     }
 }
 

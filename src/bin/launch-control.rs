@@ -10,7 +10,6 @@ use std::time::Instant;
 
 use clap::Parser;
 use control_frontend::args::ProgramArgs;
-use control_frontend::common::NRFStatusReporter;
 use control_frontend::connection::Connection;
 use control_frontend::consort::Consort;
 use control_frontend::input::InputEvent;
@@ -18,6 +17,7 @@ use control_frontend::model::{Model, SharedIdGenerator};
 use control_frontend::observables::AdcGain;
 use control_frontend::render::render;
 use control_frontend::rqprotocol::Node;
+use control_frontend::telemetry::NRFConnector;
 #[cfg(feature = "novaview")]
 use control_frontend::timestep::TimeStep;
 
@@ -63,8 +63,6 @@ fn serial_port_path() -> Option<String> {
 
 #[cfg(feature = "eframe")]
 fn main() -> Result<(), eframe::Error> {
-    use control_frontend::common::FakeNRFStatusReporter;
-
     simple_logger::init_with_env().unwrap();
 
     let id_generator = SharedIdGenerator::default();
@@ -87,7 +85,7 @@ fn main() -> Result<(), eframe::Error> {
         recorder,
     )
     .unwrap();
-    let nrf_status_reporter = Rc::new(RefCell::new(FakeNRFStatusReporter::default()));
+    let nrf_status_reporter = control_frontend::telemetry::create();
     eframe::run_native(
         "Launch Control",
         options,
@@ -109,6 +107,7 @@ where
     Id: Iterator<Item = usize>,
 {
     model: Model<C, Id>,
+    nrf_connector: Rc<RefCell<dyn NRFConnector>>,
 }
 
 impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
@@ -117,7 +116,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
         conn: C,
         args: ProgramArgs,
         recorder_path: Option<PathBuf>,
-        nrf_status_reporter: Rc<RefCell<dyn NRFStatusReporter>>,
+        nrf_connector: Rc<RefCell<dyn NRFConnector>>,
     ) -> Self {
         let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'B'));
         let start_time = Instant::now();
@@ -137,10 +136,13 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
             &AdcGain::Gain32,
             args.start_with_launch_control,
             recorder_path,
-            nrf_status_reporter,
+            nrf_connector.clone(),
         );
 
-        Self { model }
+        Self {
+            model,
+            nrf_connector,
+        }
     }
 
     #[cfg(feature = "novaview")]
@@ -183,7 +185,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> eframe::App for LaunchControlApp
                 frame.close();
             }
         });
-
+        self.nrf_connector.borrow_mut().drive();
         self.model.drive(Instant::now()).unwrap();
         // Get the egui context and begin drawing the frame
         // Draw an egui window
@@ -357,7 +359,7 @@ impl JoystickProcessor {
 
 #[cfg(feature = "novaview")]
 fn run() -> anyhow::Result<()> {
-    use control_frontend::telemetry::{TelemetryFrontend, DEFAULT_CONFIGURATION};
+    use control_frontend::telemetry::ZMQPublisher;
     use sd_notify::NotifyState;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -373,10 +375,8 @@ fn run() -> anyhow::Result<()> {
         recorder,
     )
     .unwrap();
-    let telemetry_frontend = Rc::new(RefCell::new(TelemetryFrontend::new(
-        "tcp://0.0.0.0:2424",
-        DEFAULT_CONFIGURATION.into_iter(),
-    )?));
+    let telemetry_frontend = control_frontend::telemetry::create();
+    let mut publisher = ZMQPublisher::new("tcp://0.0.0.0:2424")?;
     let mut app = LaunchControlApp::new(id_generator, conn, args, None, telemetry_frontend.clone());
 
     // Initialize sdl
@@ -441,7 +441,7 @@ fn run() -> anyhow::Result<()> {
         platform.update_time(start_time.elapsed().as_secs_f64());
         let ctx = platform.context();
         mouse.show_cursor(false);
-        telemetry_frontend.borrow_mut().drive();
+        publisher.publish_telemetry_data(&telemetry_frontend.borrow_mut().drive());
         app.update(&input_events, &ctx);
 
         // Stop drawing the egui frame and get the full output

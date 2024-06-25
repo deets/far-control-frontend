@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Empty;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -17,11 +16,9 @@ use linux_embedded_hal::{
     spidev::{SpiModeFlags, Spidev, SpidevOptions},
     CdevPin, CdevPinError,
 };
-use log::{error, info, warn};
-use serde::Serialize;
-use zmq::{Context, Socket};
+use log::{info, warn};
 
-use crate::common::NRFStatusReporter;
+use super::{Message, NRFConnector, TelemetryData};
 use crate::rqprotocol::Node;
 
 type SpiError = embedded_nrf24l01::Error<std::io::Error>;
@@ -167,12 +164,6 @@ pub struct Config {
 }
 
 #[derive(Debug)]
-pub enum TelemetryData {
-    Frame(Node, Vec<u8>),
-    NoModule(Node),
-}
-
-#[derive(Debug)]
 enum NRFOrDummy {
     Working(NRFRx),
     Dummy(Instant),
@@ -249,27 +240,6 @@ pub struct TelemetryEndpoint {
 }
 
 impl TelemetryEndpoint {
-    pub fn recv(&mut self, mut callback: impl FnMut(TelemetryData)) -> bool {
-        let mut received_something = false;
-        match self.command_receiver.try_recv() {
-            Ok(data) => {
-                if let TelemetryData::Frame(node, _) = data {
-                    self.last_comms.insert(node, Instant::now());
-                }
-                received_something = true;
-                callback(data);
-            }
-            Err(err) => match err {
-                crossbeam_channel::TryRecvError::Empty => {}
-                crossbeam_channel::TryRecvError::Disconnected => {
-                    error!("Can't read from cb channel: {:?}", err);
-                    panic!();
-                }
-            },
-        }
-        received_something
-    }
-
     pub fn heard_from_since(&self, node: &Node) -> Duration {
         Instant::now()
             - if self.last_comms.contains_key(node) {
@@ -290,6 +260,20 @@ impl TelemetryEndpoint {
         }
         // See https://stackoverflow.com/questions/57670145/how-to-store-joinhandle-of-a-thread-to-close-it-later
         self.worker.take().map(JoinHandle::join);
+    }
+
+    fn drive(&mut self) -> Vec<TelemetryData> {
+        let mut res = vec![];
+        for data in self.command_receiver.try_iter() {
+            match data {
+                TelemetryData::Frame(node, _) => {
+                    self.last_comms.insert(node, Instant::now());
+                    res.push(data.clone());
+                }
+                TelemetryData::NoModule(_) => {}
+            }
+        }
+        res
     }
 }
 
@@ -358,19 +342,11 @@ pub fn setup_telemetry(configs: impl Iterator<Item = Config>) -> anyhow::Result<
     })
 }
 
-#[derive(Serialize)]
-pub struct Message {
-    pub node: Node,
-    pub data: [u8; 32],
-}
-
 pub struct TelemetryFrontend {
     endpoint: TelemetryEndpoint,
-    context: Context,
-    socket: Socket,
 }
 
-impl NRFStatusReporter for TelemetryFrontend {
+impl NRFConnector for TelemetryFrontend {
     fn registered_nodes(&self) -> &Vec<Node> {
         self.endpoint.registered_nodes()
     }
@@ -378,33 +354,16 @@ impl NRFStatusReporter for TelemetryFrontend {
     fn heard_from_since(&self, node: &Node) -> Duration {
         self.endpoint.heard_from_since(node)
     }
+
+    fn drive(&mut self) -> Vec<TelemetryData> {
+        self.endpoint.drive()
+    }
 }
 
 impl TelemetryFrontend {
-    pub fn drive(&mut self) {
-        while self.endpoint.recv(|data| match data {
-            TelemetryData::Frame(node, data) => {
-                let message = Message {
-                    node,
-                    data: data.try_into().unwrap(),
-                };
-                let j = serde_json::to_string(&message).unwrap();
-                let _ = self.socket.send(&j.as_bytes(), 0);
-            }
-            TelemetryData::NoModule(_) => {}
-        }) {}
-    }
-
-    pub fn new(uri: &str, configs: impl Iterator<Item = Config>) -> anyhow::Result<Self> {
+    pub fn new(configs: impl Iterator<Item = Config>) -> anyhow::Result<Self> {
         let endpoint = setup_telemetry(configs)?;
-        let context = Context::new();
-        let socket = context.socket(zmq::PUB)?;
-        socket.bind(uri)?;
-        Ok(Self {
-            endpoint,
-            context,
-            socket,
-        })
+        Ok(Self { endpoint })
     }
 }
 
