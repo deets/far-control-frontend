@@ -2,6 +2,8 @@ use log::{debug, error};
 #[cfg(test)]
 use mock_instant::Instant;
 use ringbuffer::{AllocRingBuffer, RingBuffer};
+use std::collections::HashMap;
+
 #[cfg(not(test))]
 use std::time::Instant;
 
@@ -17,6 +19,8 @@ use crate::observables::rqa as rqobs;
 
 #[cfg(feature = "rocket")]
 use crate::observables::rqb as rqobs;
+use crate::rqprotocol::Node;
+use crate::telemetry::parser::rq2::{TelemetryData, TelemetryPacket};
 
 use rqobs::{ObservablesGroup1, ObservablesGroup2, RawObservablesGroup, SystemDefinition};
 
@@ -154,7 +158,8 @@ where
     pub established_connection_at: Option<Instant>,
     pub adc_gain: AdcGain,
     pub recorder_path: Option<PathBuf>,
-    pub nrf_connector: Rc<RefCell<dyn NRFConnector>>,
+    nrf_connector: Rc<RefCell<dyn NRFConnector>>,
+    telemetry_data: HashMap<Node, Vec<TelemetryData>>,
 }
 
 pub trait StateProcessing {
@@ -985,7 +990,11 @@ impl LaunchControlMode {
     }
 }
 
-impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
+impl<C, Id> Model<C, Id>
+where
+    C: Connection,
+    Id: Iterator<Item = usize>,
+{
     pub fn new(
         consort: Consort<Id>,
         module: C,
@@ -1015,6 +1024,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
             adc_gain: gain.clone(),
             recorder_path,
             nrf_connector,
+            telemetry_data: HashMap::new(),
         }
     }
 
@@ -1024,6 +1034,30 @@ impl<C: Connection, Id: Iterator<Item = usize>> Model<C, Id> {
 
     pub fn mode(&self) -> &Mode {
         &self.mode
+    }
+
+    pub fn process_telemetry_data(&mut self, telemetry_data: &Vec<TelemetryPacket>) {
+        for tp in telemetry_data {
+            if !self.telemetry_data.contains_key(&tp.node) {
+                self.telemetry_data.insert(tp.node, vec![]);
+            }
+            self.telemetry_data
+                .get_mut(&tp.node)
+                .unwrap()
+                .push(tp.data.clone());
+        }
+    }
+
+    pub fn registered_nodes(&self) -> Vec<Node> {
+        self.nrf_connector.borrow().registered_nodes().clone()
+    }
+
+    pub fn heard_from_since(&self, node: &Node) -> Duration {
+        self.nrf_connector.borrow().heard_from_since(node)
+    }
+
+    pub fn telemetry_data_for_node(&self, node: &Node) -> Option<&Vec<TelemetryData>> {
+        self.telemetry_data.get(node)
     }
 
     pub fn drive(&mut self, now: Instant) -> anyhow::Result<()> {

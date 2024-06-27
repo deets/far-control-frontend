@@ -7,7 +7,7 @@ use log::error;
 
 use crate::rqprotocol::Node;
 
-use super::{Message, NRFConnector, TelemetryData};
+use super::{Message, NRFConnector, RawTelemetryPacket};
 
 pub struct ZMQSubscriberNRFConnector {
     nodes: Vec<Node>,
@@ -32,21 +32,31 @@ impl NRFConnector for ZMQSubscriberNRFConnector {
             }
     }
 
-    fn drive(&mut self) -> Vec<super::TelemetryData> {
+    fn drive(&mut self) -> Vec<super::RawTelemetryPacket> {
         let mut res = vec![];
-        match self.socket.recv_bytes(::zmq::DONTWAIT) {
-            Ok(bytes) => {
-                let s = unsafe { std::str::from_utf8_unchecked(&bytes) };
-                let message: Message = serde_json::from_str(&s).unwrap();
-                self.last_comms.insert(message.node, Instant::now());
-                res.push(TelemetryData::Frame(message.node, message.data.into()));
-            }
-            Err(err) => match err {
-                zmq::Error::EAGAIN => {}
-                _ => {
-                    error!("ZMQ ERROR{:?}", err);
+        loop {
+            match self.socket.recv_bytes(::zmq::DONTWAIT) {
+                Ok(bytes) => {
+                    let s = unsafe { std::str::from_utf8_unchecked(&bytes) };
+                    match serde_json::from_str::<Message>(&s) {
+                        Ok(message) => {
+                            self.last_comms.insert(message.node, Instant::now());
+                            res.push(RawTelemetryPacket::Frame(message.node, message.data.into()));
+                        }
+                        Err(err) => {
+                            error!("ZMQ deserialization error: {:?}", err);
+                        }
+                    }
                 }
-            },
+                Err(err) => match err {
+                    zmq::Error::EAGAIN => {
+                        break;
+                    }
+                    _ => {
+                        error!("ZMQ ERROR{:?}", err);
+                    }
+                },
+            }
         }
         res
     }

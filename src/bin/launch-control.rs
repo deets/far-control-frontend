@@ -17,7 +17,7 @@ use control_frontend::model::{Model, SharedIdGenerator};
 use control_frontend::observables::AdcGain;
 use control_frontend::render::render;
 use control_frontend::rqprotocol::Node;
-use control_frontend::telemetry::NRFConnector;
+use control_frontend::telemetry::{process_raw_telemetry_data, NRFConnector, ZMQPublisher};
 #[cfg(feature = "novaview")]
 use control_frontend::timestep::TimeStep;
 
@@ -85,7 +85,7 @@ fn main() -> Result<(), eframe::Error> {
         recorder,
     )
     .unwrap();
-    let nrf_status_reporter = control_frontend::telemetry::create();
+    let nrf_connector = control_frontend::telemetry::create();
     eframe::run_native(
         "Launch Control",
         options,
@@ -95,7 +95,8 @@ fn main() -> Result<(), eframe::Error> {
                 conn,
                 args,
                 recorder_path,
-                nrf_status_reporter,
+                nrf_connector,
+                None,
             ))
         }),
     )
@@ -108,6 +109,7 @@ where
 {
     model: Model<C, Id>,
     nrf_connector: Rc<RefCell<dyn NRFConnector>>,
+    publisher: Option<ZMQPublisher>,
 }
 
 impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
@@ -117,6 +119,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
         args: ProgramArgs,
         recorder_path: Option<PathBuf>,
         nrf_connector: Rc<RefCell<dyn NRFConnector>>,
+        publisher: Option<ZMQPublisher>,
     ) -> Self {
         let (me, target_red_queen) = (Node::LaunchControl, Node::RedQueen(b'B'));
         let start_time = Instant::now();
@@ -142,11 +145,20 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
         Self {
             model,
             nrf_connector,
+            publisher,
         }
     }
 
     #[cfg(feature = "novaview")]
     fn update(&mut self, input_events: &Vec<InputEvent>, ctx: &egui::Context) {
+        use control_frontend::telemetry::process_raw_telemetry_data;
+
+        let telemetry_data = self.nrf_connector.borrow_mut().drive();
+        if let Some(ref mut publisher) = self.publisher {
+            publisher.publish_telemetry_data(&telemetry_data);
+        }
+        self.model
+            .process_telemetry_data(process_raw_telemetry_data(&telemetry_data));
         self.model.drive(Instant::now()).unwrap();
         // Get the egui context and begin drawing the frame
         // Draw an egui window
@@ -185,7 +197,12 @@ impl<C: Connection, Id: Iterator<Item = usize>> eframe::App for LaunchControlApp
                 frame.close();
             }
         });
-        self.nrf_connector.borrow_mut().drive();
+        let telemetry_data = self.nrf_connector.borrow_mut().drive();
+        if let Some(ref mut publisher) = self.publisher {
+            publisher.publish_telemetry_data(&telemetry_data);
+        }
+        self.model
+            .process_telemetry_data(&process_raw_telemetry_data(&telemetry_data));
         self.model.drive(Instant::now()).unwrap();
         // Get the egui context and begin drawing the frame
         // Draw an egui window
@@ -375,9 +392,16 @@ fn run() -> anyhow::Result<()> {
         recorder,
     )
     .unwrap();
-    let telemetry_frontend = control_frontend::telemetry::create();
+    let nrf_connector = control_frontend::telemetry::create();
     let mut publisher = ZMQPublisher::new("tcp://0.0.0.0:2424")?;
-    let mut app = LaunchControlApp::new(id_generator, conn, args, None, telemetry_frontend.clone());
+    let mut app = LaunchControlApp::new(
+        id_generator,
+        conn,
+        args,
+        None,
+        nrf_connector.clone(),
+        Some(publisher),
+    );
 
     // Initialize sdl
     let sdl = sdl2::init().map_err(|e| anyhow::anyhow!("Failed to create sdl context: {}", e))?;
@@ -441,7 +465,6 @@ fn run() -> anyhow::Result<()> {
         platform.update_time(start_time.elapsed().as_secs_f64());
         let ctx = platform.context();
         mouse.show_cursor(false);
-        publisher.publish_telemetry_data(&telemetry_frontend.borrow_mut().drive());
         app.update(&input_events, &ctx);
 
         // Stop drawing the egui frame and get the full output

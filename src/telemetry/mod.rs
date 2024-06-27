@@ -1,13 +1,18 @@
 use crate::rqprotocol::Node;
 use ::zmq::{Context, Socket};
+use log::error;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::{cell::RefCell, rc::Rc};
+
+use self::parser::rq2::{packet_parser, TelemetryPacket};
 
 #[cfg(feature = "novaview")]
 pub mod nrf;
 #[cfg(not(feature = "novaview"))]
 pub mod zmq;
+
+pub mod parser;
 
 #[derive(Serialize, Deserialize)]
 pub struct Message {
@@ -16,7 +21,7 @@ pub struct Message {
 }
 
 #[derive(Clone)]
-pub enum TelemetryData {
+pub enum RawTelemetryPacket {
     Frame(Node, Vec<u8>),
     NoModule(Node),
 }
@@ -24,7 +29,7 @@ pub enum TelemetryData {
 pub trait NRFConnector {
     fn registered_nodes(&self) -> &Vec<Node>;
     fn heard_from_since(&self, node: &Node) -> Duration;
-    fn drive(&mut self) -> Vec<TelemetryData>;
+    fn drive(&mut self) -> Vec<RawTelemetryPacket>;
 }
 
 #[cfg(not(feature = "novaview"))]
@@ -59,10 +64,10 @@ impl ZMQPublisher {
         })
     }
 
-    pub fn publish_telemetry_data(&mut self, messages: &Vec<TelemetryData>) {
+    pub fn publish_telemetry_data(&mut self, messages: &Vec<RawTelemetryPacket>) {
         for data in messages.into_iter() {
             match data {
-                TelemetryData::Frame(node, data) => {
+                RawTelemetryPacket::Frame(node, data) => {
                     self.count += data.len();
                     let message = Message {
                         node: *node,
@@ -72,8 +77,26 @@ impl ZMQPublisher {
                     let j = serde_json::to_string(&message).unwrap();
                     let _ = self.socket.send(&j.as_bytes(), 0);
                 }
-                TelemetryData::NoModule(_) => {}
+                RawTelemetryPacket::NoModule(_) => {}
             }
         }
     }
+}
+
+pub fn process_raw_telemetry_data(raw: &Vec<RawTelemetryPacket>) -> Vec<TelemetryPacket> {
+    let mut res = vec![];
+    for packet in raw.into_iter() {
+        match packet {
+            RawTelemetryPacket::Frame(node, data) => match packet_parser(*node, data) {
+                Ok((_, packet)) => {
+                    res.push(packet);
+                }
+                Err(err) => {
+                    error!("telemetry packet error: {:?}", err);
+                }
+            },
+            RawTelemetryPacket::NoModule(_) => todo!(),
+        }
+    }
+    res
 }

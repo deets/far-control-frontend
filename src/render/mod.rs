@@ -349,7 +349,7 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlMode, obg2: &Option<O
 fn render_body<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, state: &Model<C, Id>) {
     let obg2 = state.obg2.clone();
     match state.mode {
-        Mode::Observables(_state) => render_observables(ui, &state.obg1, &obg2),
+        Mode::Observables(_state) => render_observables(ui, state),
         Mode::LaunchControl(state) => {
             render_launch_control(ui, &state, &obg2);
         }
@@ -457,15 +457,15 @@ fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
         if let Some(reset_countdown) = model.auto_reset_in() {
             ui.label(format!("Automatic reset in: {}", reset_countdown.as_secs()));
         }
-        for node in model.nrf_connector.borrow().registered_nodes() {
-            let heard_of_since = model.nrf_connector.borrow().heard_from_since(node);
+        for node in model.registered_nodes() {
+            let heard_of_since = model.heard_from_since(&node);
             let name = match node {
                 crate::rqprotocol::Node::RedQueen(id) => {
-                    let buf = [b'R', b'Q', *id];
+                    let buf = [b'R', b'Q', id];
                     unsafe { std::str::from_utf8_unchecked(&buf) }.to_string()
                 }
                 crate::rqprotocol::Node::Farduino(id) => {
-                    let buf = [b'F', b'D', *id];
+                    let buf = [b'F', b'D', id];
                     unsafe { std::str::from_utf8_unchecked(&buf) }.to_string()
                 }
                 crate::rqprotocol::Node::LaunchControl => "LNC".to_string(),
