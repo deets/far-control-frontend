@@ -58,6 +58,15 @@ impl Default for SharedIdGenerator {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RFSilenceMode {
+    Start,
+    Failure,
+    Reset,
+    Idle,
+    RadioSilence,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LaunchControlMode {
     Start,
     Failure,
@@ -132,6 +141,7 @@ pub enum ObservablesMode {
 pub enum Mode {
     Observables(ObservablesMode),
     LaunchControl(LaunchControlMode),
+    RFSilence(RFSilenceMode),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -525,6 +535,79 @@ impl StateProcessing for ObservablesMode {
     }
 }
 
+impl StateProcessing for RFSilenceMode {
+    type State = RFSilenceMode;
+
+    fn process_response(&self, response: Response) -> Self::State {
+        *self
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            RFSilenceMode::Start => "Start",
+            RFSilenceMode::Failure => "Failure",
+            RFSilenceMode::Reset => "Reset",
+            RFSilenceMode::Idle => "Idle",
+            RFSilenceMode::RadioSilence => "Radio Silence",
+        }
+    }
+
+    fn is_failure(&self) -> bool {
+        match self {
+            Self::State::Failure => true,
+            _ => false,
+        }
+    }
+
+    fn is_start(&self) -> bool {
+        match self {
+            Self::State::Start => true,
+            _ => false,
+        }
+    }
+
+    fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea) {
+        (*self, ControlArea::Tabs)
+    }
+
+    fn process_mode_change(&self) -> Option<Command> {
+        todo!()
+    }
+
+    fn drive(&self) -> Self::State {
+        *self
+    }
+
+    fn connected(&self) -> bool {
+        match self {
+            Self::State::Start => false,
+            Self::State::Failure => false,
+            Self::State::Reset => false,
+            _ => true,
+        }
+    }
+
+    fn reset_mode(&self) -> Self::State {
+        Self::State::Reset
+    }
+
+    fn failure_mode(&self) -> Self::State {
+        Self::State::Failure
+    }
+
+    fn reset_ongoing(&self) -> bool {
+        match self {
+            Self::Start => true,
+            Self::Reset => true,
+            _ => false,
+        }
+    }
+
+    fn affected_by_timeout(&self) -> bool {
+        false
+    }
+}
+
 impl Default for LaunchControlMode {
     fn default() -> Self {
         Self::Start
@@ -537,6 +620,12 @@ impl Default for ObservablesMode {
     }
 }
 
+impl Default for RFSilenceMode {
+    fn default() -> Self {
+        Self::Start
+    }
+}
+
 impl StateProcessing for Mode {
     type State = Mode;
 
@@ -544,6 +633,7 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => Mode::Observables(state.process_response(response)),
             Mode::LaunchControl(state) => Mode::LaunchControl(state.process_response(response)),
+            Mode::RFSilence(state) => Mode::RFSilence(state.process_response(response)),
         }
     }
 
@@ -551,6 +641,7 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => state.name(),
             Mode::LaunchControl(state) => state.name(),
+            Mode::RFSilence(state) => state.name(),
         }
     }
 
@@ -558,6 +649,7 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => state.is_failure(),
             Mode::LaunchControl(state) => state.is_failure(),
+            Mode::RFSilence(state) => state.is_failure(),
         }
     }
 
@@ -565,6 +657,7 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => state.is_start(),
             Mode::LaunchControl(state) => state.is_start(),
+            Mode::RFSilence(state) => state.is_start(),
         }
     }
 
@@ -578,6 +671,10 @@ impl StateProcessing for Mode {
                 let (state, ca) = state.process_event(event);
                 (Mode::LaunchControl(state), ca)
             }
+            Mode::RFSilence(state) => {
+                let (state, ca) = state.process_event(event);
+                (Mode::RFSilence(state), ca)
+            }
         }
     }
 
@@ -585,6 +682,7 @@ impl StateProcessing for Mode {
         match self {
             Mode::LaunchControl(state) => state.process_mode_change(),
             Mode::Observables(state) => state.process_mode_change(),
+            Mode::RFSilence(state) => state.process_mode_change(),
         }
     }
 
@@ -592,6 +690,7 @@ impl StateProcessing for Mode {
         let mut mode = match self {
             Mode::LaunchControl(state) => Mode::LaunchControl(state.drive()),
             Mode::Observables(state) => Mode::Observables(state.drive()),
+            Mode::RFSilence(state) => Mode::RFSilence(state.drive()),
         };
         if let Mode::LaunchControl(LaunchControlMode::SwitchToObservables) = mode {
             mode = Mode::Observables(ObservablesMode::Start)
@@ -603,6 +702,7 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => state.connected(),
             Mode::LaunchControl(state) => state.connected(),
+            Mode::RFSilence(state) => state.connected(),
         }
     }
 
@@ -610,6 +710,7 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => Mode::Observables(state.reset_mode()),
             Mode::LaunchControl(state) => Mode::LaunchControl(state.reset_mode()),
+            Mode::RFSilence(state) => Mode::RFSilence(state.reset_mode()),
         }
     }
 
@@ -617,6 +718,7 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => Mode::Observables(state.failure_mode()),
             Mode::LaunchControl(state) => Mode::LaunchControl(state.failure_mode()),
+            Mode::RFSilence(state) => Mode::RFSilence(state.failure_mode()),
         }
     }
 
@@ -624,6 +726,7 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => state.reset_ongoing(),
             Mode::LaunchControl(state) => state.reset_ongoing(),
+            Mode::RFSilence(state) => state.reset_ongoing(),
         }
     }
 
@@ -631,6 +734,7 @@ impl StateProcessing for Mode {
         match self {
             Mode::Observables(state) => state.affected_by_timeout(),
             Mode::LaunchControl(state) => state.affected_by_timeout(),
+            Mode::RFSilence(state) => state.affected_by_timeout(),
         }
     }
 }
@@ -1196,8 +1300,8 @@ where
 
     fn process_tabs_event(&mut self, event: &InputEvent) -> ControlArea {
         match event {
-            InputEvent::Left(..) => self.toggle_tab(),
-            InputEvent::Right(..) => self.toggle_tab(),
+            InputEvent::Left(..) => self.toggle_tab(true),
+            InputEvent::Right(..) => self.toggle_tab(false),
             InputEvent::Enter => {
                 let (mode, control) = self.mode.process_event(event);
                 self.mode = mode;
@@ -1261,11 +1365,20 @@ where
         None
     }
 
-    fn toggle_tab(&mut self) -> ControlArea {
+    fn toggle_tab(&mut self, go_left: bool) -> ControlArea {
         if !self.mode.reset_ongoing() {
-            self.mode = match self.mode {
-                Mode::LaunchControl(_) => Mode::Observables(ObservablesMode::Start),
-                Mode::Observables(_) => Mode::LaunchControl(LaunchControlMode::Start),
+            if go_left {
+                self.mode = match self.mode {
+                    Mode::LaunchControl(_) => Mode::Observables(ObservablesMode::Start),
+                    Mode::Observables(_) => Mode::RFSilence(RFSilenceMode::Start),
+                    Mode::RFSilence(_) => Mode::LaunchControl(LaunchControlMode::Start),
+                }
+            } else {
+                self.mode = match self.mode {
+                    Mode::LaunchControl(_) => Mode::RFSilence(RFSilenceMode::Start),
+                    Mode::Observables(_) => Mode::LaunchControl(LaunchControlMode::Start),
+                    Mode::RFSilence(_) => Mode::Observables(ObservablesMode::Start),
+                }
             }
         }
         ControlArea::Tabs

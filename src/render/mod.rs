@@ -8,7 +8,7 @@ use palette::{Gradient, LinSrgb};
 use crate::connection::Connection;
 use crate::ebyte::modem_baud_rate;
 use crate::layout::colors::{color32, kind_color, kind_color32, Intensity, Kind};
-use crate::model::{ControlArea, LaunchControlMode, Mode, Model, StateProcessing};
+use crate::model::{ControlArea, LaunchControlMode, Mode, Model, RFSilenceMode, StateProcessing};
 use crate::observables::AdcGain;
 
 #[cfg(feature = "test-stand")]
@@ -77,14 +77,24 @@ fn kind_for_mode(mode: &Mode) -> Kind {
     match mode {
         Mode::Observables(_) => Kind::Observables,
         Mode::LaunchControl(_) => Kind::LaunchControl,
+        Mode::RFSilence(_) => Kind::RFSilence,
     }
 }
 
 fn render_header<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Model<C, Id>) {
     let is_observables = match model.mode() {
         Mode::Observables(_) => true,
-        Mode::LaunchControl(_) => false,
+        _ => false,
     };
+    let is_launch_control = match model.mode() {
+        Mode::LaunchControl(_) => true,
+        _ => false,
+    };
+    let is_rf_silence = match model.mode() {
+        Mode::RFSilence(_) => true,
+        _ => false,
+    };
+
     let is_tabs = match model.control {
         ControlArea::Tabs => true,
         ControlArea::Details => false,
@@ -98,20 +108,35 @@ fn render_header<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
                 kind_color32(Kind::Observables, intensity(is_observables && is_tabs)),
                 10.0,
             ))
-            .exact_width(ui.available_width() / 2.0)
+            .exact_width(ui.available_width() / 3.0)
             .show_inside(ui, |ui| {
                 render_header_text(ui, "Observables", text_color(is_observables && is_tabs));
             });
-        egui::SidePanel::right("launch control")
+        egui::SidePanel::left("launch control")
             .resizable(false)
             .show_separator_line(false)
             .frame(color_frame(
-                kind_color32(Kind::LaunchControl, intensity(!is_observables && is_tabs)),
+                kind_color32(Kind::LaunchControl, intensity(is_launch_control && is_tabs)),
+                10.0,
+            ))
+            .exact_width(ui.available_width() / 2.0)
+            .show_inside(ui, |ui| {
+                render_header_text(
+                    ui,
+                    "Launch Control",
+                    text_color(is_launch_control && is_tabs),
+                );
+            });
+        egui::SidePanel::left("RF silence")
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(color_frame(
+                kind_color32(Kind::LaunchControl, intensity(is_rf_silence && is_tabs)),
                 10.0,
             ))
             .exact_width(ui.available_width())
             .show_inside(ui, |ui| {
-                render_header_text(ui, "Launch Control", text_color(!is_observables && is_tabs));
+                render_header_text(ui, "RF Silence", text_color(is_rf_silence && is_tabs));
             });
     });
 }
@@ -346,12 +371,17 @@ fn render_launch_control(ui: &mut Ui, state: &LaunchControlMode, obg2: &Option<O
     });
 }
 
+fn render_rf_silence(ui: &mut Ui, state: RFSilenceMode) {}
+
 fn render_body<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, state: &Model<C, Id>) {
     let obg2 = state.obg2.clone();
     match state.mode {
         Mode::Observables(_state) => render_observables(ui, state),
         Mode::LaunchControl(state) => {
             render_launch_control(ui, &state, &obg2);
+        }
+        Mode::RFSilence(state) => {
+            render_rf_silence(ui, state);
         }
     }
 }
