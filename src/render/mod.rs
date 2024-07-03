@@ -450,7 +450,7 @@ fn render_nrf_state(ui: &mut Ui, heard_of_since: Duration) {
 
 fn render_status<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Model<C, Id>) {
     ui.horizontal(|ui| {
-        if model.mode.is_failure() {
+        if model.mode.core_mode().is_failure() {
             ui.spinner();
         } else {
             render_alive(ui);

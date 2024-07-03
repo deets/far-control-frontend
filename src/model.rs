@@ -58,20 +58,21 @@ impl Default for SharedIdGenerator {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum RFSilenceMode {
+pub enum CoreConnection {
     Start,
     Failure,
     Reset,
     Idle,
+}
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RFSilenceMode {
+    Core(CoreConnection),
     RadioSilence,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LaunchControlMode {
-    Start,
-    Failure,
-    Reset,
-    Idle,
+    Core(CoreConnection),
     EnterDigitHiA {
         hi_a: u8,
     },
@@ -131,10 +132,7 @@ pub enum LaunchControlMode {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ObservablesMode {
-    Start,
-    Failure,
-    Reset,
-    Idle,
+    Core(CoreConnection),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -172,6 +170,58 @@ where
     telemetry_data: HashMap<Node, Vec<TelemetryData>>,
 }
 
+impl CoreConnection {
+    fn is_start(&self) -> bool {
+        match self {
+            CoreConnection::Start => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_failure(&self) -> bool {
+        match self {
+            CoreConnection::Failure => true,
+            _ => false,
+        }
+    }
+
+    fn reset_ongoing(&self) -> bool {
+        match self {
+            CoreConnection::Start => true,
+            CoreConnection::Reset => true,
+            _ => false,
+        }
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            Self::Start => "Start",
+            Self::Failure => "Failure",
+            Self::Reset => "Reset",
+            Self::Idle => "Idle",
+        }
+    }
+    fn process_response(&self, response: Response) -> Self {
+        match self {
+            Self::Reset => match response {
+                Response::ResetAck => {
+                    debug!("Acknowledged Reset, go to Idle");
+                    Self::Idle
+                }
+                _ => Self::Start,
+            },
+            _ => *self,
+        }
+    }
+
+    fn connected(&self) -> bool {
+        match self {
+            CoreConnection::Idle => true,
+            _ => false,
+        }
+    }
+}
+
 pub trait StateProcessing {
     type State;
 
@@ -179,7 +229,7 @@ pub trait StateProcessing {
 
     fn name(&self) -> &str;
 
-    fn is_failure(&self) -> bool;
+    fn core_mode(&self) -> CoreConnection;
 
     fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea);
 
@@ -187,17 +237,13 @@ pub trait StateProcessing {
 
     fn drive(&self) -> Self::State;
 
-    fn connected(&self) -> bool;
-
-    fn is_start(&self) -> bool;
-
-    fn reset_mode(&self) -> Self::State;
+    fn affected_by_timeout(&self) -> bool;
 
     fn failure_mode(&self) -> Self::State;
 
-    fn reset_ongoing(&self) -> bool;
+    fn reset_mode(&self) -> Self::State;
 
-    fn affected_by_timeout(&self) -> bool;
+    fn reset_ongoing(&self) -> bool;
 }
 
 impl StateProcessing for LaunchControlMode {
@@ -205,14 +251,7 @@ impl StateProcessing for LaunchControlMode {
 
     fn process_response(&self, response: Response) -> Self::State {
         match self {
-            Self::State::Reset => match response {
-                Response::ResetAck => {
-                    debug!("Acknowledged Reset, go to Idle");
-                    Self::State::Idle
-                }
-                _ => Self::State::Start,
-            },
-            Self::State::Idle => *self,
+            Self::Core(core_mode) => Self::Core(core_mode.process_response(response)),
             Self::TransmitKeyA { hi_a, lo_a } => match response {
                 Response::LaunchSecretPartialAck => Self::PrepareUnlockPyros {
                     hi_a: *hi_a,
@@ -220,7 +259,7 @@ impl StateProcessing for LaunchControlMode {
                     progress: 0,
                     last_update: Instant::now(),
                 },
-                _ => Self::State::Start,
+                _ => Self::State::Core(CoreConnection::Start),
             },
             Self::UnlockPyros { hi_a, lo_a, .. } => match response {
                 Response::UnlockPyrosAck => Self::State::EnterDigitHiB {
@@ -228,7 +267,7 @@ impl StateProcessing for LaunchControlMode {
                     lo_a: *lo_a,
                     hi_b: 0,
                 },
-                _ => Self::State::Start,
+                _ => Self::Core(CoreConnection::Start),
             },
             Self::TransmitKeyAB {
                 hi_a,
@@ -244,11 +283,11 @@ impl StateProcessing for LaunchControlMode {
                     progress: 0,
                     last_update: Instant::now(),
                 },
-                _ => Self::State::Start,
+                _ => Self::Core(CoreConnection::Start),
             },
             Self::State::Fire => match response {
                 Response::IgnitionAck => Self::State::WaitForPyroTimeout(Instant::now()),
-                _ => Self::State::Start,
+                _ => Self::Core(CoreConnection::Start),
             },
             _ => *self,
         }
@@ -256,10 +295,7 @@ impl StateProcessing for LaunchControlMode {
 
     fn name(&self) -> &str {
         match self {
-            Self::State::Start => "Start",
-            Self::State::Failure => "Failure",
-            Self::State::Reset => "Reset",
-            Self::State::Idle => "Idle",
+            Self::State::Core(core) => core.name(),
             Self::State::EnterDigitHiA { .. } => "Enter Hi A",
             Self::State::EnterDigitLoA { .. } => "Enter Lo A",
             Self::State::PrepareUnlockPyros { .. } => "Prepare Unlock Pyros",
@@ -276,23 +312,9 @@ impl StateProcessing for LaunchControlMode {
         }
     }
 
-    fn is_failure(&self) -> bool {
-        match self {
-            Self::State::Failure => true,
-            _ => false,
-        }
-    }
-
-    fn is_start(&self) -> bool {
-        match self {
-            Self::State::Start => true,
-            _ => false,
-        }
-    }
-
     fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea) {
         match self {
-            LaunchControlMode::Idle => self.process_event_idle(event),
+            LaunchControlMode::Core(CoreConnection::Idle) => self.process_event_idle(event),
             LaunchControlMode::EnterDigitHiA { hi_a } => {
                 self.process_event_enter_higit_hi_a(event, *hi_a)
             }
@@ -423,70 +445,58 @@ impl StateProcessing for LaunchControlMode {
         }
     }
 
-    fn connected(&self) -> bool {
-        match self {
-            LaunchControlMode::Start => false,
-            LaunchControlMode::Failure => false,
-            LaunchControlMode::Reset => false,
-            _ => true,
-        }
+    fn affected_by_timeout(&self) -> bool {
+        let idle = match self {
+            LaunchControlMode::Core(core) => match core {
+                CoreConnection::Idle => true,
+                _ => false,
+            },
+            _ => false,
+        };
+        !self.reset_ongoing() && !idle
     }
 
-    fn reset_mode(&self) -> Self::State {
-        Self::State::Reset
+    fn core_mode(&self) -> CoreConnection {
+        match self {
+            LaunchControlMode::Core(core) => *core,
+            _ => CoreConnection::Idle,
+        }
     }
 
     fn failure_mode(&self) -> Self::State {
-        Self::State::Failure
+        Self::State::Core(CoreConnection::Failure)
+    }
+
+    fn reset_mode(&self) -> Self::State {
+        Self::Core(CoreConnection::Reset)
     }
 
     fn reset_ongoing(&self) -> bool {
-        match self {
-            LaunchControlMode::Start => true,
-            LaunchControlMode::Reset => true,
-            _ => false,
-        }
-    }
-
-    fn affected_by_timeout(&self) -> bool {
-        !self.reset_ongoing() && *self != Self::Idle
+        self.core_mode().reset_ongoing()
     }
 }
 
 impl StateProcessing for ObservablesMode {
     type State = ObservablesMode;
 
+    fn core_mode(&self) -> CoreConnection {
+        match self {
+            ObservablesMode::Core(core) => *core,
+            _ => CoreConnection::Idle,
+        }
+    }
+
     fn process_response(&self, response: Response) -> Self::State {
         match self {
-            ObservablesMode::Failure => Self::State::Start,
-            ObservablesMode::Reset => match response {
-                Response::ResetAck => Self::State::Idle,
-                _ => Self::State::Start,
-            },
+            ObservablesMode::Core(core) => ObservablesMode::Core(core.process_response(response)),
             _ => *self,
         }
     }
 
     fn name(&self) -> &str {
         match self {
-            Self::State::Start => "Start",
-            Self::State::Failure => "Failure",
-            Self::State::Reset => "Reset",
-            Self::State::Idle => "Idle",
-        }
-    }
-
-    fn is_failure(&self) -> bool {
-        match self {
-            Self::State::Failure => true,
-            _ => false,
-        }
-    }
-
-    fn is_start(&self) -> bool {
-        match self {
-            Self::State::Start => true,
-            _ => false,
+            Self::Core(core) => core.name(),
+            _ => "Idle",
         }
     }
 
@@ -505,33 +515,20 @@ impl StateProcessing for ObservablesMode {
         *self
     }
 
-    fn connected(&self) -> bool {
-        match self {
-            ObservablesMode::Start => false,
-            ObservablesMode::Failure => false,
-            ObservablesMode::Reset => false,
-            _ => true,
-        }
-    }
-
-    fn reset_mode(&self) -> Self::State {
-        Self::State::Reset
+    fn affected_by_timeout(&self) -> bool {
+        false
     }
 
     fn failure_mode(&self) -> Self::State {
-        Self::State::Failure
+        Self::State::Core(CoreConnection::Failure)
+    }
+
+    fn reset_mode(&self) -> Self::State {
+        Self::Core(CoreConnection::Reset)
     }
 
     fn reset_ongoing(&self) -> bool {
-        match self {
-            Self::Start => true,
-            Self::Reset => true,
-            _ => false,
-        }
-    }
-
-    fn affected_by_timeout(&self) -> bool {
-        false
+        self.core_mode().reset_ongoing()
     }
 }
 
@@ -539,30 +536,16 @@ impl StateProcessing for RFSilenceMode {
     type State = RFSilenceMode;
 
     fn process_response(&self, response: Response) -> Self::State {
-        *self
+        match self {
+            Self::Core(core) => Self::Core(core.process_response(response)),
+            _ => *self,
+        }
     }
 
     fn name(&self) -> &str {
         match self {
-            RFSilenceMode::Start => "Start",
-            RFSilenceMode::Failure => "Failure",
-            RFSilenceMode::Reset => "Reset",
-            RFSilenceMode::Idle => "Idle",
-            RFSilenceMode::RadioSilence => "Radio Silence",
-        }
-    }
-
-    fn is_failure(&self) -> bool {
-        match self {
-            Self::State::Failure => true,
-            _ => false,
-        }
-    }
-
-    fn is_start(&self) -> bool {
-        match self {
-            Self::State::Start => true,
-            _ => false,
+            RFSilenceMode::Core(core) => core.name(),
+            _ => "Radio Silence",
         }
     }
 
@@ -571,58 +554,52 @@ impl StateProcessing for RFSilenceMode {
     }
 
     fn process_mode_change(&self) -> Option<Command> {
-        todo!()
+        None
     }
 
     fn drive(&self) -> Self::State {
         *self
     }
 
-    fn connected(&self) -> bool {
-        match self {
-            Self::State::Start => false,
-            Self::State::Failure => false,
-            Self::State::Reset => false,
-            _ => true,
-        }
+    fn affected_by_timeout(&self) -> bool {
+        false
     }
 
-    fn reset_mode(&self) -> Self::State {
-        Self::State::Reset
+    fn core_mode(&self) -> CoreConnection {
+        match self {
+            RFSilenceMode::Core(cm) => *cm,
+            RFSilenceMode::RadioSilence => CoreConnection::Idle,
+        }
     }
 
     fn failure_mode(&self) -> Self::State {
-        Self::State::Failure
+        Self::State::Core(CoreConnection::Failure)
+    }
+
+    fn reset_mode(&self) -> Self::State {
+        Self::Core(CoreConnection::Reset)
     }
 
     fn reset_ongoing(&self) -> bool {
-        match self {
-            Self::Start => true,
-            Self::Reset => true,
-            _ => false,
-        }
-    }
-
-    fn affected_by_timeout(&self) -> bool {
-        false
+        self.core_mode().reset_ongoing()
     }
 }
 
 impl Default for LaunchControlMode {
     fn default() -> Self {
-        Self::Start
+        Self::Core(CoreConnection::Start)
     }
 }
 
 impl Default for ObservablesMode {
     fn default() -> Self {
-        Self::Start
+        Self::Core(CoreConnection::Start)
     }
 }
 
 impl Default for RFSilenceMode {
     fn default() -> Self {
-        Self::Start
+        Self::Core(CoreConnection::Start)
     }
 }
 
@@ -642,22 +619,6 @@ impl StateProcessing for Mode {
             Mode::Observables(state) => state.name(),
             Mode::LaunchControl(state) => state.name(),
             Mode::RFSilence(state) => state.name(),
-        }
-    }
-
-    fn is_failure(&self) -> bool {
-        match self {
-            Mode::Observables(state) => state.is_failure(),
-            Mode::LaunchControl(state) => state.is_failure(),
-            Mode::RFSilence(state) => state.is_failure(),
-        }
-    }
-
-    fn is_start(&self) -> bool {
-        match self {
-            Mode::Observables(state) => state.is_start(),
-            Mode::LaunchControl(state) => state.is_start(),
-            Mode::RFSilence(state) => state.is_start(),
         }
     }
 
@@ -693,41 +654,9 @@ impl StateProcessing for Mode {
             Mode::RFSilence(state) => Mode::RFSilence(state.drive()),
         };
         if let Mode::LaunchControl(LaunchControlMode::SwitchToObservables) = mode {
-            mode = Mode::Observables(ObservablesMode::Start)
+            mode = Mode::Observables(ObservablesMode::Core(CoreConnection::Start))
         }
         mode
-    }
-
-    fn connected(&self) -> bool {
-        match self {
-            Mode::Observables(state) => state.connected(),
-            Mode::LaunchControl(state) => state.connected(),
-            Mode::RFSilence(state) => state.connected(),
-        }
-    }
-
-    fn reset_mode(&self) -> Self::State {
-        match self {
-            Mode::Observables(state) => Mode::Observables(state.reset_mode()),
-            Mode::LaunchControl(state) => Mode::LaunchControl(state.reset_mode()),
-            Mode::RFSilence(state) => Mode::RFSilence(state.reset_mode()),
-        }
-    }
-
-    fn failure_mode(&self) -> Self::State {
-        match self {
-            Mode::Observables(state) => Mode::Observables(state.failure_mode()),
-            Mode::LaunchControl(state) => Mode::LaunchControl(state.failure_mode()),
-            Mode::RFSilence(state) => Mode::RFSilence(state.failure_mode()),
-        }
-    }
-
-    fn reset_ongoing(&self) -> bool {
-        match self {
-            Mode::Observables(state) => state.reset_ongoing(),
-            Mode::LaunchControl(state) => state.reset_ongoing(),
-            Mode::RFSilence(state) => state.reset_ongoing(),
-        }
     }
 
     fn affected_by_timeout(&self) -> bool {
@@ -736,6 +665,34 @@ impl StateProcessing for Mode {
             Mode::LaunchControl(state) => state.affected_by_timeout(),
             Mode::RFSilence(state) => state.affected_by_timeout(),
         }
+    }
+
+    fn core_mode(&self) -> CoreConnection {
+        match self {
+            Mode::Observables(s) => s.core_mode(),
+            Mode::LaunchControl(s) => s.core_mode(),
+            Mode::RFSilence(s) => s.core_mode(),
+        }
+    }
+
+    fn failure_mode(&self) -> Self::State {
+        match self {
+            Mode::Observables(s) => Mode::Observables(s.failure_mode()),
+            Mode::LaunchControl(s) => Mode::LaunchControl(s.failure_mode()),
+            Mode::RFSilence(s) => Mode::RFSilence(s.failure_mode()),
+        }
+    }
+
+    fn reset_mode(&self) -> Self::State {
+        match self {
+            Mode::Observables(s) => Mode::Observables(s.reset_mode()),
+            Mode::LaunchControl(s) => Mode::LaunchControl(s.reset_mode()),
+            Mode::RFSilence(s) => Mode::RFSilence(s.reset_mode()),
+        }
+    }
+
+    fn reset_ongoing(&self) -> bool {
+        self.core_mode().reset_ongoing()
     }
 }
 
@@ -748,10 +705,7 @@ impl Default for ControlArea {
 impl LaunchControlMode {
     pub fn digits(&self) -> (u8, u8, u8, u8) {
         match self {
-            LaunchControlMode::Start => (0, 0, 0, 0),
-            LaunchControlMode::Failure => (0, 0, 0, 0),
-            LaunchControlMode::Reset => (0, 0, 0, 0),
-            LaunchControlMode::Idle => (0, 0, 0, 0),
+            LaunchControlMode::Core(_) => (0, 0, 0, 0),
             LaunchControlMode::EnterDigitHiA { hi_a } => (*hi_a, 0, 0, 0),
             LaunchControlMode::EnterDigitLoA { hi_a, lo_a } => (*hi_a, *lo_a, 0, 0),
             LaunchControlMode::PrepareUnlockPyros { hi_a, lo_a, .. } => (*hi_a, *lo_a, 0, 0),
@@ -810,10 +764,7 @@ impl LaunchControlMode {
 
     pub fn unlock_pyros_progress(&self) -> f32 {
         let p = match self {
-            LaunchControlMode::Start => 0,
-            LaunchControlMode::Failure => 0,
-            LaunchControlMode::Reset => 0,
-            LaunchControlMode::Idle => 0,
+            LaunchControlMode::Core(_) => 0,
             LaunchControlMode::EnterDigitHiA { .. } => 0,
             LaunchControlMode::EnterDigitLoA { .. } => 0,
             LaunchControlMode::TransmitKeyA { .. } => 0,
@@ -847,7 +798,10 @@ impl LaunchControlMode {
                 },
                 ControlArea::Details,
             ),
-            InputEvent::Back => (LaunchControlMode::Start, ControlArea::Tabs),
+            InputEvent::Back => (
+                LaunchControlMode::Core(CoreConnection::Start),
+                ControlArea::Tabs,
+            ),
             InputEvent::Right(_) => (
                 LaunchControlMode::EnterDigitHiA {
                     hi_a: (digit + 1) % 16,
@@ -915,7 +869,10 @@ impl LaunchControlMode {
                 },
                 ControlArea::Details,
             ),
-            InputEvent::Back => (LaunchControlMode::Start, ControlArea::Tabs),
+            InputEvent::Back => (
+                LaunchControlMode::Core(CoreConnection::Start),
+                ControlArea::Tabs,
+            ),
             InputEvent::Right(_) => (
                 LaunchControlMode::EnterDigitHiB {
                     hi_a,
@@ -1004,7 +961,10 @@ impl LaunchControlMode {
             )
         } else {
             match event {
-                InputEvent::Back => (LaunchControlMode::Start, ControlArea::Tabs),
+                InputEvent::Back => (
+                    LaunchControlMode::Core(CoreConnection::Start),
+                    ControlArea::Tabs,
+                ),
                 InputEvent::Right(_) => (
                     LaunchControlMode::PrepareIgnition {
                         hi_a,
@@ -1047,7 +1007,10 @@ impl LaunchControlMode {
             )
         } else {
             match event {
-                InputEvent::Back => (LaunchControlMode::Start, ControlArea::Tabs),
+                InputEvent::Back => (
+                    LaunchControlMode::Core(CoreConnection::Start),
+                    ControlArea::Tabs,
+                ),
                 InputEvent::Right(_) => (
                     LaunchControlMode::PrepareUnlockPyros {
                         hi_a,
@@ -1079,7 +1042,10 @@ impl LaunchControlMode {
         lo_b: u8,
     ) -> (Self, ControlArea) {
         match event {
-            InputEvent::Back => (LaunchControlMode::Start, ControlArea::Tabs),
+            InputEvent::Back => (
+                LaunchControlMode::Core(CoreConnection::Start),
+                ControlArea::Tabs,
+            ),
             InputEvent::Enter => (LaunchControlMode::Fire, ControlArea::Details),
             _ => (
                 LaunchControlMode::WaitForFire {
@@ -1091,6 +1057,10 @@ impl LaunchControlMode {
                 ControlArea::Details,
             ),
         }
+    }
+
+    fn reset_ongoing(&self) -> bool {
+        self.core_mode().reset_ongoing()
     }
 }
 
@@ -1168,7 +1138,7 @@ where
         self.now = now;
         self.consort.update_time(now);
         // When we are in start state, start a reset cycle
-        if self.mode.is_start() || self.effect_timeout() {
+        if self.mode.core_mode().is_start() || self.effect_timeout() {
             self.reset();
             self.control = Default::default();
             return Ok(());
@@ -1369,15 +1339,27 @@ where
         if !self.mode.reset_ongoing() {
             if go_left {
                 self.mode = match self.mode {
-                    Mode::LaunchControl(_) => Mode::Observables(ObservablesMode::Start),
-                    Mode::Observables(_) => Mode::RFSilence(RFSilenceMode::Start),
-                    Mode::RFSilence(_) => Mode::LaunchControl(LaunchControlMode::Start),
+                    Mode::LaunchControl(_) => {
+                        Mode::Observables(ObservablesMode::Core(CoreConnection::Start))
+                    }
+                    Mode::Observables(_) => {
+                        Mode::RFSilence(RFSilenceMode::Core(CoreConnection::Start))
+                    }
+                    Mode::RFSilence(_) => {
+                        Mode::LaunchControl(LaunchControlMode::Core(CoreConnection::Start))
+                    }
                 }
             } else {
                 self.mode = match self.mode {
-                    Mode::LaunchControl(_) => Mode::RFSilence(RFSilenceMode::Start),
-                    Mode::Observables(_) => Mode::LaunchControl(LaunchControlMode::Start),
-                    Mode::RFSilence(_) => Mode::Observables(ObservablesMode::Start),
+                    Mode::LaunchControl(_) => {
+                        Mode::RFSilence(RFSilenceMode::Core(CoreConnection::Start))
+                    }
+                    Mode::Observables(_) => {
+                        Mode::LaunchControl(LaunchControlMode::Core(CoreConnection::Start))
+                    }
+                    Mode::RFSilence(_) => {
+                        Mode::Observables(ObservablesMode::Core(CoreConnection::Start))
+                    }
                 }
             }
         }
@@ -1385,7 +1367,7 @@ where
     }
 
     pub fn connected(&self) -> bool {
-        self.mode.connected()
+        self.mode.core_mode().connected()
     }
 }
 
