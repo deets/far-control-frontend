@@ -137,7 +137,7 @@ impl<C: Connection, Id: Iterator<Item = usize>> LaunchControlApp<C, Id> {
             start_time,
             &port_path,
             &AdcGain::Gain32,
-            args.start_with_launch_control,
+            args.start_with,
             recorder_path,
             nrf_connector.clone(),
         );
