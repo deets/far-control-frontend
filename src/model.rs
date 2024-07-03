@@ -14,6 +14,7 @@ use std::{
     time::Duration,
 };
 
+use crate::args::LaunchMode;
 #[cfg(feature = "test-stand")]
 use crate::observables::rqa as rqobs;
 
@@ -67,7 +68,9 @@ pub enum CoreConnection {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RFSilenceMode {
     Core(CoreConnection),
-    RadioSilence,
+    WaitForEnter,
+    SendRFSilenceCommand,
+    LeaveRadioSilence { progress: u8, last_update: Instant },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -225,16 +228,22 @@ impl CoreConnection {
 pub trait StateProcessing {
     type State;
 
-    fn process_response(&self, response: Response) -> Self::State;
-
     fn name(&self) -> &str;
 
     fn core_mode(&self) -> CoreConnection;
 
     fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea);
 
+    // Invoked when the mode has changed
+    // to send a command to the RQ
     fn process_mode_change(&self) -> Option<Command>;
 
+    // Invoked with the response to a sent command
+    // to progress the state machine.
+    fn process_response(&self, response: Response) -> Self::State;
+
+    // Invoked unconditionally and allows state changes
+    // dependent on time
     fn drive(&self) -> Self::State;
 
     fn affected_by_timeout(&self) -> bool;
@@ -244,6 +253,8 @@ pub trait StateProcessing {
     fn reset_mode(&self) -> Self::State;
 
     fn reset_ongoing(&self) -> bool;
+
+    fn is_radio_silence(&self) -> bool;
 }
 
 impl StateProcessing for LaunchControlMode {
@@ -474,6 +485,10 @@ impl StateProcessing for LaunchControlMode {
     fn reset_ongoing(&self) -> bool {
         self.core_mode().reset_ongoing()
     }
+
+    fn is_radio_silence(&self) -> bool {
+        false
+    }
 }
 
 impl StateProcessing for ObservablesMode {
@@ -530,35 +545,89 @@ impl StateProcessing for ObservablesMode {
     fn reset_ongoing(&self) -> bool {
         self.core_mode().reset_ongoing()
     }
+
+    fn is_radio_silence(&self) -> bool {
+        false
+    }
 }
 
 impl StateProcessing for RFSilenceMode {
     type State = RFSilenceMode;
 
-    fn process_response(&self, response: Response) -> Self::State {
-        match self {
-            Self::Core(core) => Self::Core(core.process_response(response)),
-            _ => *self,
-        }
-    }
-
     fn name(&self) -> &str {
         match self {
             RFSilenceMode::Core(core) => core.name(),
-            _ => "Radio Silence",
+            RFSilenceMode::WaitForEnter => "Activate RF silence",
+            RFSilenceMode::SendRFSilenceCommand => "Activate RF silence",
+            RFSilenceMode::LeaveRadioSilence { .. } => "RF silence active",
         }
     }
 
     fn process_event(&self, event: &InputEvent) -> (Self::State, ControlArea) {
-        (*self, ControlArea::Tabs)
+        match self {
+            RFSilenceMode::Core(_) => match event {
+                InputEvent::Back => (Self::Core(CoreConnection::Start), ControlArea::Tabs),
+                InputEvent::Enter => (Self::WaitForEnter, ControlArea::Details),
+                _ => (*self, ControlArea::Tabs),
+            },
+            RFSilenceMode::WaitForEnter => match event {
+                InputEvent::Enter => (Self::SendRFSilenceCommand, ControlArea::Details),
+                InputEvent::Back => (Self::Core(CoreConnection::Start), ControlArea::Tabs),
+                _ => (*self, ControlArea::Tabs),
+            },
+            RFSilenceMode::LeaveRadioSilence { progress, .. } => match event {
+                InputEvent::Right(_) => (
+                    RFSilenceMode::LeaveRadioSilence {
+                        progress: std::cmp::min(progress + 3, 100),
+                        last_update: Instant::now(),
+                    },
+                    ControlArea::Details,
+                ),
+                _ => (*self, ControlArea::Details),
+            },
+            _ => (*self, ControlArea::Details),
+        }
     }
 
     fn process_mode_change(&self) -> Option<Command> {
-        None
+        match self {
+            RFSilenceMode::SendRFSilenceCommand => Some(Command::EnterRFSilence),
+            _ => None,
+        }
+    }
+
+    fn process_response(&self, response: Response) -> Self::State {
+        match self {
+            Self::Core(core) => Self::Core(core.process_response(response)),
+            RFSilenceMode::SendRFSilenceCommand => match response {
+                Response::RFSilenceAck => Self::LeaveRadioSilence {
+                    progress: 0,
+                    last_update: Instant::now(),
+                },
+                _ => Self::State::Core(CoreConnection::Start),
+            },
+            _ => *self,
+        }
     }
 
     fn drive(&self) -> Self::State {
-        *self
+        match self {
+            RFSilenceMode::LeaveRadioSilence {
+                progress,
+                last_update,
+            } => match *progress {
+                100 => RFSilenceMode::Core(CoreConnection::Start),
+                _ => RFSilenceMode::LeaveRadioSilence {
+                    last_update: *last_update,
+                    progress: if last_update.elapsed() > Duration::from_millis(500) {
+                        std::cmp::max(*progress, 1) - 1
+                    } else {
+                        *progress
+                    },
+                },
+            },
+            _ => *self,
+        }
     }
 
     fn affected_by_timeout(&self) -> bool {
@@ -568,7 +637,7 @@ impl StateProcessing for RFSilenceMode {
     fn core_mode(&self) -> CoreConnection {
         match self {
             RFSilenceMode::Core(cm) => *cm,
-            RFSilenceMode::RadioSilence => CoreConnection::Idle,
+            _ => CoreConnection::Idle,
         }
     }
 
@@ -582,6 +651,13 @@ impl StateProcessing for RFSilenceMode {
 
     fn reset_ongoing(&self) -> bool {
         self.core_mode().reset_ongoing()
+    }
+
+    fn is_radio_silence(&self) -> bool {
+        match self {
+            RFSilenceMode::LeaveRadioSilence { .. } => true,
+            _ => false,
+        }
     }
 }
 
@@ -694,6 +770,14 @@ impl StateProcessing for Mode {
     fn reset_ongoing(&self) -> bool {
         self.core_mode().reset_ongoing()
     }
+
+    fn is_radio_silence(&self) -> bool {
+        match self {
+            Mode::Observables(state) => state.is_radio_silence(),
+            Mode::LaunchControl(state) => state.is_radio_silence(),
+            Mode::RFSilence(state) => state.is_radio_silence(),
+        }
+    }
 }
 
 impl Default for ControlArea {
@@ -702,6 +786,15 @@ impl Default for ControlArea {
     }
 }
 
+impl RFSilenceMode {
+    pub fn leave_radio_silence_progress(&self) -> f32 {
+        let p = match self {
+            RFSilenceMode::LeaveRadioSilence { progress, .. } => *progress,
+            _ => 0,
+        };
+        p as f32 / 100.0
+    }
+}
 impl LaunchControlMode {
     pub fn digits(&self) -> (u8, u8, u8, u8) {
         match self {
@@ -1075,15 +1168,15 @@ where
         now: Instant,
         port: &str,
         gain: &AdcGain,
-        start_with_launch_control: bool,
+        start_with: LaunchMode,
         recorder_path: Option<PathBuf>,
         nrf_connector: Rc<RefCell<dyn NRFConnector>>,
     ) -> Self {
         Self {
-            mode: if start_with_launch_control {
-                Mode::LaunchControl(LaunchControlMode::default())
-            } else {
-                Mode::Observables(ObservablesMode::default())
+            mode: match start_with {
+                LaunchMode::Observables => Mode::Observables(ObservablesMode::default()),
+                LaunchMode::LaunchControl => Mode::LaunchControl(LaunchControlMode::default()),
+                LaunchMode::RFSilence => Mode::RFSilence(RFSilenceMode::default()),
             },
             control: Default::default(),
             consort,
@@ -1204,6 +1297,7 @@ where
             }
         }
         self.set_mode(self.mode.drive());
+        self.module.radio_silence(self.mode.is_radio_silence());
         Ok(())
     }
 

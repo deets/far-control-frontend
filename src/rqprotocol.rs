@@ -152,6 +152,7 @@ pub enum Command {
     Ignition,
     Ping,
     ObservableGroup(usize),
+    EnterRFSilence,
 }
 
 impl Display for Error {
@@ -170,8 +171,12 @@ pub enum Response {
     PingAck,
     ObservableGroup(RawObservablesGroup),
     ObservableGroupAck,
+    RFSilenceAck,
 }
 
+// Represents the state waiting for the
+// incoming acknowledgement for the last sent
+// command.
 enum CommandProcessor {
     ResetAck,
     LaunchSecretPartial(u8),
@@ -180,6 +185,7 @@ enum CommandProcessor {
     IgnitionAck,
     PingAck,
     ObservableGroupAck(usize),
+    RFSilenceAck,
 }
 
 impl Command {
@@ -192,6 +198,7 @@ impl Command {
             Command::Ignition => b"IGNITION",
             Command::Ping => b"PING",
             Command::ObservableGroup(_) => b"OBG",
+            Command::EnterRFSilence => b"RF_SILENCE",
         }
     }
 
@@ -204,6 +211,7 @@ impl Command {
             Command::Ignition => CommandProcessor::IgnitionAck,
             Command::Ping => CommandProcessor::PingAck,
             Command::ObservableGroup(g) => CommandProcessor::ObservableGroupAck(*g),
+            Command::EnterRFSilence => CommandProcessor::RFSilenceAck,
         }
     }
     fn process_response(
@@ -445,6 +453,8 @@ fn usize_parameter(
 }
 
 impl Marshal for Command {
+    // Fills in the command buffer with
+    // additional arguments besides the verb.
     fn to_command<'a>(
         &self,
         buffer: &'a mut [u8],
@@ -461,6 +471,7 @@ impl Marshal for Command {
             Command::Ignition => Ok(range),
             Command::Ping => Ok(range),
             Command::ObservableGroup(group) => usize_parameter(buffer, range, *group),
+            Command::EnterRFSilence => Ok(range),
         }
     }
 
@@ -610,6 +621,7 @@ impl CommandProcessor {
                     Err(Error::ParseError)
                 }
             }
+            CommandProcessor::RFSilenceAck => Ok((params, Response::RFSilenceAck)),
         }
     }
 }

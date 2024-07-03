@@ -22,4 +22,5 @@ pub trait Connection: std::io::Write {
     fn open(&mut self, port: &str);
     fn reset(&mut self);
     fn resume(&mut self);
+    fn radio_silence(&mut self, radio_silence: bool);
 }

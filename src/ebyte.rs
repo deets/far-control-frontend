@@ -42,6 +42,8 @@ enum Commands {
     Quit,
     Reset,
     Resume,
+    RadioSilence,
+    NoRadioSilence,
 }
 
 struct E32Worker<Id> {
@@ -58,6 +60,7 @@ pub struct E32Connection {
     command_sender: Sender<Commands>,
     response_receiver: Receiver<Answers>,
     busy: bool,
+    is_radio_silence: bool,
 }
 
 impl E32Connection {
@@ -85,6 +88,7 @@ impl E32Connection {
             command_sender,
             response_receiver,
             busy: false,
+            is_radio_silence: false,
         })
     }
 
@@ -130,6 +134,18 @@ impl Connection for E32Connection {
     fn resume(&mut self) {
         self.command_sender.send(Commands::Resume).unwrap();
     }
+
+    fn radio_silence(&mut self, radio_silence: bool) {
+        if radio_silence != self.is_radio_silence {
+            self.is_radio_silence = radio_silence;
+            self.command_sender
+                .send(match radio_silence {
+                    true => Commands::RadioSilence,
+                    false => Commands::NoRadioSilence,
+                })
+                .unwrap();
+        }
+    }
 }
 
 impl Drop for E32Connection {
@@ -146,12 +162,15 @@ where
     fn work(&mut self) {
         let mut module = None;
         let mut fetch_observables = false;
+        let mut is_radio_silence = false;
         loop {
             match self
                 .command_receiver
                 .recv_timeout(Duration::from_millis(100))
             {
                 Ok(m) => match m {
+                    Commands::RadioSilence => is_radio_silence = true,
+                    Commands::NoRadioSilence => is_radio_silence = false,
                     Commands::Reset => fetch_observables = false,
                     Commands::Resume => fetch_observables = true,
                     Commands::Quit => {
@@ -207,7 +226,7 @@ where
                     }
                 },
                 Err(RecvTimeoutError::Timeout) => {
-                    if fetch_observables {
+                    if fetch_observables && !is_radio_silence {
                         if let Some(module) = &mut module {
                             self.fetch_observables(module);
                         }
