@@ -69,7 +69,7 @@ pub mod colors {
                     b"#240d24 #481b49 #6c286d #903692 #b744b8 #c567c7 #d48dd5 #e2b3e3 #f1d9f1"
                 }
                 Kind::RFSilence => {
-                    b"#050a10 #0a131f #0e1d2f #13273e #18314f #2b578c #447ec5 #82a9d9 #c1d4ec"
+                    b"#0e1d2f #0e1d2f #13273e #13273e #18314f #2b578c #447ec5 #82a9d9 #c1d4ec"
                 }
                 Kind::Status => {
                     b"#514400 #a18900 #f2cd00 #ffe343 #ffee93 #fff2a9 #fff5bf #fff9d4 #fffcea"

@@ -87,6 +87,7 @@ fn kind_for_mode(mode: &Mode) -> Kind {
 }
 
 fn render_header<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Model<C, Id>) {
+    let reset_ongoing = model.mode.reset_ongoing();
     let is_observables = match model.mode() {
         Mode::Observables(_) => true,
         _ => false,
@@ -115,7 +116,11 @@ fn render_header<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
             ))
             .exact_width(ui.available_width() / 3.0)
             .show_inside(ui, |ui| {
-                render_header_text(ui, "Observables", text_color(is_observables && is_tabs));
+                render_header_text(
+                    ui,
+                    "Observables",
+                    text_color(is_observables && is_tabs && !reset_ongoing),
+                );
             });
         egui::SidePanel::left("launch control")
             .resizable(false)
@@ -129,7 +134,7 @@ fn render_header<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
                 render_header_text(
                     ui,
                     "Launch Control",
-                    text_color(is_launch_control && is_tabs),
+                    text_color(is_launch_control && is_tabs && !reset_ongoing),
                 );
             });
         egui::SidePanel::left("RF silence")
@@ -141,7 +146,11 @@ fn render_header<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: 
             ))
             .exact_width(ui.available_width())
             .show_inside(ui, |ui| {
-                render_header_text(ui, "RF Silence", text_color(is_rf_silence && is_tabs));
+                render_header_text(
+                    ui,
+                    "RF Silence",
+                    text_color(is_rf_silence && is_tabs && !reset_ongoing),
+                );
             });
     });
 }
