@@ -16,6 +16,11 @@ RQ_FORMAT = "<BBIhhhhhhhhhff"
 RQ_SIZE = struct.calcsize(RQ_FORMAT)
 
 
+class PacketType(enum.Enum):
+    STATE_PACKET=0
+    IMU_SET_A_PACKET=1
+    IMU_SET_B_PACKET=2
+
 class IgnitionState(enum.Enum):
   RESET = 0
   SECRET_A = 1
@@ -80,19 +85,23 @@ class MessageBuilder:
         self._socket.bind("tcp://0.0.0.0:{}".format(port))
 
     def feed(self, now, node, data):
-        seq, flags_and_message_type = data[:2]
-        message_type = flags_and_message_type & 0x0f
-        if message_type == 0:
-            values = struct.unpack(RQ_FORMAT, data[:RQ_SIZE])
-            self._feed_imu_messages(now, node, *values)
-        elif message_type == 1:
-            logger.debug("STATE PACKET")
-            logger.info(IgnitionState(data[6]))
+        seq, packet_type = data[:2]
+        packet_type = PacketType(packet_type)
+        match packet_type:
+            case PacketType.STATE_PACKET:
+                logger.debug("STATE PACKET")
+                logging.debug(data)
+                logger.info(IgnitionState(data[6]))
+            case PacketType.IMU_SET_A_PACKET:
+                values = struct.unpack(RQ_FORMAT, data[:RQ_SIZE])
+                self._feed_imu_messages(now, node, *values)
+            case PacketType.IMU_SET_B_PACKET:
+                logging.debug(data[:RQ_SIZE])
+                values = struct.unpack(RQ_FORMAT, data[:RQ_SIZE])
+                self._feed_imu_messages(now, node, *values)
 
-
-    def _feed_imu_messages(self, now, node, seq, flags, timestamp, acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z, mag_x, mag_y, mag_z, pressure, temperature):
+    def _feed_imu_messages(self, now, node, seq, packet_type, timestamp, acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z, mag_x, mag_y, mag_z, pressure, temperature):
         mcu_timestamp = self._clock_tracker.feed(now, timestamp, seq)
-
         if node == self._node:
             data = dict(
                 acc=dict(x=acc_x, y=acc_y, z=acc_z),
@@ -101,13 +110,15 @@ class MessageBuilder:
                 temperature=temperature,
                 pressure=pressure,
             )
-            if flags & 0x80:
-                self._b = data
-            else:
-                self._a = data
+            packet_type = PacketType(packet_type)
+            match packet_type:
+                case PacketType.IMU_SET_A_PACKET:
+                    self._a = data
+                case PacketType.IMU_SET_B_PACKET:
+                    self._b = data
             if self._a is not None and self._b is not None:
                 message = json.dumps(dict(timestamp=mcu_timestamp, raw_timestamp=timestamp, a=self._a, b=self._b))
-                logging.debug(f"message: {repr(message)}")
+                logging.info(f"message: {repr(message)}")
                 self._socket.send_string(message)
 
 
