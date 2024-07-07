@@ -141,10 +141,10 @@ fn bmi088_parser(
         i16_parser, i16_parser, i16_parser, i16_parser, i16_parser, i16_parser,
     ))(s)?;
     let af = match acc_range {
-        BMI088AccRange::AccRange3g => 2.0_f32.powf(1.0 + 1.0) * 1.5 / 32768.0,
-        BMI088AccRange::AccRange6g => 2.0_f32.powf(2.0 + 1.0) * 1.5 / 32768.0,
-        BMI088AccRange::AccRange12g => 2.0_f32.powf(3.0 + 1.0) * 1.5 / 32768.0,
-        BMI088AccRange::AccRange24g => 2.0_f32.powf(4.0 + 1.0) * 1.5 / 32768.0,
+        BMI088AccRange::AccRange3g => 2.0_f32.powf(0.0 + 1.0) * 1.5 / 32768.0,
+        BMI088AccRange::AccRange6g => 2.0_f32.powf(1.0 + 1.0) * 1.5 / 32768.0,
+        BMI088AccRange::AccRange12g => 2.0_f32.powf(2.0 + 1.0) * 1.5 / 32768.0,
+        BMI088AccRange::AccRange24g => 2.0_f32.powf(3.0 + 1.0) * 1.5 / 32768.0,
     };
     let gf = match gyr_range {
         BMI088GyrRange::GyrRange2000s => 1.0 / 32768.0 * 2000.0,
