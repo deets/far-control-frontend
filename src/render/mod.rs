@@ -326,7 +326,7 @@ fn clear_frame() -> Frame {
 }
 fn color_frame(color: Color32, padding: f32) -> Frame {
     egui::containers::Frame {
-        rounding: egui::Rounding::default(),
+        rounding: 0.0.into(),
         fill: color,
         stroke: egui::Stroke::NONE,
         inner_margin: padding.into(),
@@ -350,30 +350,11 @@ fn status_background_frame<C: Connection, IdGenerator: Iterator<Item = usize>>(
     let fill = color32(gradient.get(how_connected));
 
     egui::containers::Frame {
-        rounding: egui::Rounding {
-            nw: 1.0,
-            ne: 1.0,
-            sw: 1.0,
-            se: 1.0,
-        },
+        rounding: 0.0.into(),
         fill,
         stroke: egui::Stroke::NONE,
-        inner_margin: {
-            egui::style::Margin {
-                left: 10.,
-                right: 10.,
-                top: 10.,
-                bottom: 10.,
-            }
-        },
-        outer_margin: {
-            egui::style::Margin {
-                left: 0.,
-                right: 0.,
-                top: 0.,
-                bottom: 0.,
-            }
-        },
+        inner_margin: 8.0.into(),
+        outer_margin: 0.0.into(),
         shadow: Shadow::NONE,
     }
 }
@@ -406,7 +387,7 @@ pub fn render<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Mo
     egui::CentralPanel::default()
         .frame(color_frame(
             kind_color32(kind_for_mode(model.mode()), intensity(!tabs_active)),
-            2.0,
+            0.0,
         ))
         .show_inside(ui, |ui| {
             render_body(ui, model);

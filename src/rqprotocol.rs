@@ -56,6 +56,16 @@ pub enum Node {
     LaunchControl, // LNC
 }
 
+impl Into<u8> for Node {
+    fn into(self) -> u8 {
+        match self {
+            Node::RedQueen(c) => c,
+            Node::Farduino(c) => c,
+            Node::LaunchControl => b'z',
+        }
+    }
+}
+
 impl std::fmt::Debug for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

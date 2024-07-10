@@ -99,16 +99,27 @@ fn render_redqueen(ui: &mut Ui, name: &str, node: Node, data: Option<&Vec<Teleme
                     (state.imu.gyr_x, state.imu.gyr_y, state.imu.gyr_z),
                 );
             }
+            ui.end_row();
+            dark_label(ui, "Env");
+            if let Some(state) = &imu_data {
+                ui.horizontal(|ui| {
+                    dark_label(ui, &format!("{:4.3}hPA", state.pressure));
+                    dark_label(ui, &format!("{:4.3}°", state.temperature));
+                });
+            }
         });
 }
+
+const OVERVIEW_FRAME_OUTER_MARGIN: f32 = 2.0;
+const OVERVIEW_FRAME_INNER_MARGIN: f32 = 4.0;
 
 fn lined_frame() -> Frame {
     egui::containers::Frame {
         rounding: egui::Rounding::default(),
         fill: Color32::TRANSPARENT,
         stroke: egui::Stroke::new(2.0, Color32::WHITE),
-        inner_margin: 4.0.into(),
-        outer_margin: 2.0.into(),
+        inner_margin: OVERVIEW_FRAME_INNER_MARGIN.into(),
+        outer_margin: OVERVIEW_FRAME_OUTER_MARGIN.into(),
         shadow: Shadow::NONE,
     }
 }
@@ -134,26 +145,26 @@ where
                 })
                 .collect();
             rqs.sort_by(|a, b| {
-                let Node::RedQueen(a) = a else {
-                    panic!("can't happen")
-                };
-                let Node::RedQueen(b) = b else {
-                    panic!("can't happen")
-                };
-                a.cmp(b)
+                let a: u8 = (**a).into();
+                let b: u8 = (**b).into();
+                a.cmp(&b)
             });
             let mut count = rqs.len();
             for rq in rqs {
-                let Node::RedQueen(c) = rq else {
-                    panic!("can't happen")
-                };
-                let name = format!("RQ{}", unsafe { std::str::from_utf8_unchecked(&[*c]) });
+                let name = format!("RQ{}", unsafe {
+                    std::str::from_utf8_unchecked(&[(*rq).into()])
+                });
                 egui::TopBottomPanel::top(name.clone())
                     .resizable(false)
                     .show_separator_line(false)
                     .frame(lined_frame())
                     .resizable(false)
-                    .exact_height(ui.available_height() / count as f32)
+                    // For some weird reason I need to correct for these here or get
+                    // the status bar overdrawn
+                    .exact_height(
+                        ui.available_height() / count as f32
+                            - (OVERVIEW_FRAME_OUTER_MARGIN + OVERVIEW_FRAME_INNER_MARGIN) * 2.0,
+                    )
                     .show_inside(ui, |ui| {
                         render_redqueen(ui, &name, rq.clone(), model.telemetry_data_for_node(rq));
                     });
