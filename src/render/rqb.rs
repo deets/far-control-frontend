@@ -1,13 +1,7 @@
 use emath::Vec2;
-use epaint::Color32;
-use log::debug;
-use std::time::Duration;
-use uom::si::{
-    f64::{Force, Pressure},
-    pressure::bar,
-};
+use epaint::{Color32, Shadow};
 
-use egui::{RichText, Sense, Ui};
+use egui::{Frame, Id, RichText, Sense, Ui};
 
 use crate::{
     connection::Connection,
@@ -60,42 +54,63 @@ fn flatten_data(data: Option<&Vec<TelemetryData>>) -> (Option<IMUPacket>, Option
     (imu, ism)
 }
 
-fn render_imstate(ui: &mut Ui, state: Option<IgnitionSMState>) {
-    ui.horizontal(|ui| {
-        ui.label("State:").highlight();
-        if let Some(state) = state {
-            ui.label(format!("{:?}", state)).highlight();
-        }
-    });
+fn render_vector(ui: &mut Ui, id: Id, prefix: &str, v: (f32, f32, f32)) {
+    //    let min_col_width = ui.available_width() / 3.0;
+    egui::Grid::new(id)
+        .striped(false)
+        //        .min_col_width(min_col_width)
+        .show(ui, |ui| {
+            dark_label(ui, &format!("{}x:{:3.3}", prefix, v.0));
+            dark_label(ui, &format!("{}y:{:3.3}", prefix, v.1));
+            dark_label(ui, &format!("{}z:{:3.3}", prefix, v.2));
+        });
 }
 
-fn render_vector(ui: &mut Ui, prefix: &str, v: (f32, f32, f32)) {
-    ui.horizontal(|ui| {
-        dark_label(ui, &format!("{}x:{:3.3}", prefix, v.0));
-        dark_label(ui, &format!("{}y:{:3.3}", prefix, v.1));
-        dark_label(ui, &format!("{}z:{:3.3}", prefix, v.2));
-    });
+fn render_redqueen(ui: &mut Ui, name: &str, node: Node, data: Option<&Vec<TelemetryData>>) {
+    let (imu_data, ignition_sm_state) = flatten_data(data);
+    let base_id: Id = name.to_string().into();
+
+    egui::Grid::new(base_id.with("outer grid"))
+        .striped(false)
+        .show(ui, |ui| {
+            dark_label(ui, name);
+            ui.end_row();
+            dark_label(ui, "State");
+            if let Some(state) = ignition_sm_state {
+                dark_label(ui, &format!("{:?}", state));
+            }
+            ui.end_row();
+            dark_label(ui, "Acc");
+            if let Some(state) = &imu_data {
+                render_vector(
+                    ui,
+                    base_id.with("acc"),
+                    "a",
+                    (state.imu.acc_x, state.imu.acc_y, state.imu.acc_z),
+                );
+            }
+            ui.end_row();
+            dark_label(ui, "Gyr");
+            if let Some(state) = &imu_data {
+                render_vector(
+                    ui,
+                    base_id.with("gyr"),
+                    "g",
+                    (state.imu.gyr_x, state.imu.gyr_y, state.imu.gyr_z),
+                );
+            }
+        });
 }
 
-fn render_imu(ui: &mut Ui, state: Option<IMUPacket>) {
-    ui.horizontal(|ui| {
-        dark_label(ui, "IMU:");
-        if let Some(state) = state {
-            render_vector(ui, "a", (state.imu.acc_x, state.imu.acc_y, state.imu.acc_z));
-        }
-    });
-}
-
-fn render_redqueen(ui: &mut Ui, node: Node, data: Option<&Vec<TelemetryData>>) {
-    ui.vertical(|ui| {
-        let count = match data {
-            Some(data) => data.len(),
-            None => 0,
-        };
-        let (imu_data, ignition_sm_state) = flatten_data(data);
-        render_imstate(ui, ignition_sm_state);
-        render_imu(ui, imu_data);
-    });
+fn lined_frame() -> Frame {
+    egui::containers::Frame {
+        rounding: egui::Rounding::default(),
+        fill: Color32::TRANSPARENT,
+        stroke: egui::Stroke::new(2.0, Color32::WHITE),
+        inner_margin: 4.0.into(),
+        outer_margin: 2.0.into(),
+        shadow: Shadow::NONE,
+    }
 }
 
 pub fn render_observables<C, Id>(ui: &mut Ui, model: &Model<C, Id>)
@@ -136,12 +151,11 @@ where
                 egui::TopBottomPanel::top(name.clone())
                     .resizable(false)
                     .show_separator_line(false)
-                    .frame(clear_frame())
+                    .frame(lined_frame())
                     .resizable(false)
                     .exact_height(ui.available_height() / count as f32)
                     .show_inside(ui, |ui| {
-                        ui.label(RichText::new(name).color(text_color(false)).heading());
-                        render_redqueen(ui, rq.clone(), model.telemetry_data_for_node(rq));
+                        render_redqueen(ui, &name, rq.clone(), model.telemetry_data_for_node(rq));
                     });
                 count -= 1;
             }

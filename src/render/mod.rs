@@ -8,7 +8,7 @@ use palette::{Gradient, LinSrgb};
 use crate::connection::Connection;
 use crate::ebyte::modem_baud_rate;
 use crate::layout::colors::{color32, kind_color, kind_color32, Intensity, Kind};
-use crate::model::{ControlArea, LaunchControlMode, Mode, Model, RFSilenceMode, StateProcessing};
+use crate::model::{ControlArea, LaunchControlMode, Mode, Model, StateProcessing};
 use crate::observables::AdcGain;
 
 #[cfg(feature = "test-stand")]
@@ -16,8 +16,6 @@ use crate::observables::rqa as rqobs;
 
 #[cfg(feature = "rocket")]
 use crate::observables::rqb as rqobs;
-
-use rqobs::ObservablesGroup2;
 
 #[cfg(feature = "test-stand")]
 pub mod rqa;
@@ -326,7 +324,6 @@ fn clear_frame() -> Frame {
         shadow: Shadow::NONE,
     }
 }
-
 fn color_frame(color: Color32, padding: f32) -> Frame {
     egui::containers::Frame {
         rounding: egui::Rounding::default(),
@@ -409,7 +406,7 @@ pub fn render<C: Connection, Id: Iterator<Item = usize>>(ui: &mut Ui, model: &Mo
     egui::CentralPanel::default()
         .frame(color_frame(
             kind_color32(kind_for_mode(model.mode()), intensity(!tabs_active)),
-            10.0,
+            2.0,
         ))
         .show_inside(ui, |ui| {
             render_body(ui, model);
