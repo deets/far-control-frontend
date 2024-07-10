@@ -1,4 +1,4 @@
-use nom::{bytes::complete::take, sequence::tuple, IResult};
+use nom::{bytes::complete::take, combinator::fail, sequence::tuple, IResult};
 
 use crate::rqprotocol::Node;
 
@@ -109,7 +109,7 @@ fn packet_type_parser(s: &[u8]) -> IResult<&[u8], PacketType> {
         0 => PacketType::StatePacket,
         1 => PacketType::ImuSetAPacket,
         2 => PacketType::ImuSetBPacket,
-        _ => panic!("Wrong packet type"),
+        _ => return fail(s),
     };
     Ok((rest, res))
 }
