@@ -75,7 +75,7 @@ impl ZMQSubscriberNRFConnector {
                 Node::RedQueen(b'B'),
                 Node::Farduino(b'B'),
                 Node::RedQueen(b'T'),
-                Node::Farduino(b'B'),
+                Node::Farduino(b'T'),
             ],
             last_comms: HashMap::new(),
             start: Instant::now(),
