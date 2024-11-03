@@ -6,10 +6,11 @@ import zmq
 import logging
 import argparse
 import serial
+import itertools
 import threading
 import queue
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("simple-client")
 
 
 RQ_FORMAT = "<BBIhhhhhhhhhff"
@@ -17,17 +18,29 @@ RQ_SIZE = struct.calcsize(RQ_FORMAT)
 
 
 class PacketType(enum.Enum):
-    STATE_PACKET=0
-    IMU_SET_A_PACKET=1
-    IMU_SET_B_PACKET=2
+    STATE_PACKET = 0
+    IMU_SET_A_PACKET = 1
+    IMU_SET_B_PACKET = 2
+
 
 class IgnitionState(enum.Enum):
-  RESET = 0
-  SECRET_A = 1
-  PYROS_UNLOCKED = 2
-  SECRET_AB = 3
-  IGNITION = 4
-  RADIO_SILENCE = 5
+    RESET = 0
+    SECRET_A = 1
+    PYROS_UNLOCKED = 2
+    SECRET_AB = 3
+    IGNITION = 4
+    RADIO_SILENCE = 5
+
+
+class ControlState(enum.Enum):
+    CSM_LAUNCHPAD = 0
+    CSM_IGNITION = 1
+    CSM_LIFTOFF = 2
+    CSM_ACCELERATION = 3
+    CSM_DECELERATION = 4
+    CSM_COASTNG = 5
+    CSM_APOGEE = 6
+    CSM_DEPLOY_MAIN = 7
 
 
 class SerialSocket:
@@ -40,7 +53,6 @@ class SerialSocket:
         t.start()
 
     def _reader(self):
-        buffer = b""
         while True:
             line = self._conn.readline()
             if line.startswith(b"###"):
@@ -92,10 +104,13 @@ class MessageBuilder:
                 logger.debug("STATE PACKET")
                 logging.debug(data)
                 logger.info(IgnitionState(data[6]))
+                logger.info(ControlState(data[7]))
             case PacketType.IMU_SET_A_PACKET:
+                logger.debug("IMU_SET_A_PACKET")
                 values = struct.unpack(RQ_FORMAT, data[:RQ_SIZE])
                 self._feed_imu_messages(now, node, *values)
             case PacketType.IMU_SET_B_PACKET:
+                logger.debug("IMU_SET_B_PACKET")
                 logging.debug(data[:RQ_SIZE])
                 values = struct.unpack(RQ_FORMAT, data[:RQ_SIZE])
                 self._feed_imu_messages(now, node, *values)
@@ -118,7 +133,7 @@ class MessageBuilder:
                     self._b = data
             if self._a is not None and self._b is not None:
                 message = json.dumps(dict(timestamp=mcu_timestamp, raw_timestamp=timestamp, a=self._a, b=self._b))
-                logging.info(f"message: {repr(message)}")
+                logging.debug(f"message: {repr(message)}")
                 self._socket.send_string(message)
 
 
@@ -126,6 +141,9 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--loglevel", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
     parser.add_argument("--serial", help="If given a serial port, use that")
+    parser.add_argument("--port", default="tcp://novaview.local:2424")
+    parser.add_argument("--count", type=int, help="Only consume count messages. All if not given.")
+    parser.add_argument("--node", default="RQB", help="Avionik node name, e.g. RQB, FDB. Default RQB")
     return parser.parse_args()
 
 
@@ -140,17 +158,23 @@ def main():
     else:
         socket = context.socket(zmq.SUB)
         socket.setsockopt(zmq.SUBSCRIBE, b'')
-        socket.connect('tcp://novaview.local:2424')
-    builder = MessageBuilder("RQB", context)
+        socket.connect(args.port)
+    builder = MessageBuilder(args.node, context)
 
-    while True:
-        msg = json.loads(socket.recv())
-        now = time.monotonic()
-        node, data = msg["node"], bytes(msg["data"])
-        builder.feed(now, node, data)
+    for step in itertools.count():
+        if args.count is not None and args.count <= step:
+            break
+        incoming = socket.recv()
+        logging.debug("incoming: %s", incoming)
+        try:
+            msg = json.loads(incoming)
+        except ValueError:
+            logging.error("Can't parse incoming")
+        else:
+            now = time.monotonic()
+            node, data = msg["node"], bytes(msg["data"])
+            builder.feed(now, node, data)
 
 
-
-# main guard
 if __name__ == '__main__':
     main()
