@@ -16,6 +16,9 @@ logger = logging.getLogger("simple-client")
 RQ_FORMAT = "<BBIhhhhhhhhhff"
 RQ_SIZE = struct.calcsize(RQ_FORMAT)
 
+RQ_STATE_FORMAT = "<BBIBBhhhh"
+RQ_STATE_SIZE = struct.calcsize(RQ_STATE_FORMAT)
+
 
 class PacketType(enum.Enum):
     STATE_PACKET = 0
@@ -41,6 +44,14 @@ class ControlState(enum.Enum):
     CSM_COASTNG = 5
     CSM_APOGEE = 6
     CSM_DEPLOY_MAIN = 7
+
+
+def ina226_voltage(v):
+    return v * 0.00125
+
+
+def ina3221_voltage(v):
+    return v / 8 * 0.008
 
 
 class SerialSocket:
@@ -103,8 +114,14 @@ class MessageBuilder:
             case PacketType.STATE_PACKET:
                 logger.debug("STATE PACKET")
                 logging.debug(data)
-                logger.info(IgnitionState(data[6]))
-                logger.info(ControlState(data[7]))
+                values = struct.unpack(RQ_STATE_FORMAT, data[:RQ_STATE_SIZE])
+                logger.info(IgnitionState(values[3]))
+                logger.info(ControlState(values[4]))
+                logger.info(ina226_voltage(values[5]))
+                logger.info(ina3221_voltage(values[6]))
+                logger.info(ina3221_voltage(values[7]))
+                logger.info(ina3221_voltage(values[8]))
+
             case PacketType.IMU_SET_A_PACKET:
                 logger.debug("IMU_SET_A_PACKET")
                 values = struct.unpack(RQ_FORMAT, data[:RQ_SIZE])
